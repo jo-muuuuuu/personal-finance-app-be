@@ -50,6 +50,7 @@ async function setupTransporter() {
     },
   });
 }
+
 app.post("/api/register", (req, res) => {
   //   console.log(req.body);
 
