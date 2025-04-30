@@ -239,6 +239,60 @@ app.post("/api/reset-password", (req, res) => {
   }
 });
 
+const authMiddleware = (req, res, next) => {
+  const token = req.headers.token;
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, jwtSecretKey);
+
+    next();
+  } catch (error) {
+    console.error("Failed to verify token", error);
+
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+};
+
+app.post("/api/account-books", authMiddleware, (req, res) => {
+  const { id, name, tag, description } = req.body;
+
+  const newQuery =
+    "INSERT INTO account_books (user_id, name, tag, description) VALUES (?, ?, ?, ?)";
+  const newValues = [id, name, tag, description];
+
+  connection.query(newQuery, newValues, (error, results) => {
+    if (error) {
+      console.error("Failed to create new account book", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    // console.log(result);
+    res.status(200).json({ message: "New accound book created!" });
+  });
+});
+
+app.get("/api/account-books", authMiddleware, (req, res) => {
+  const { id } = req.headers;
+  console.log("id", id);
+
+  const query = "SELECT * FROM account_books WHERE user_id = ?;";
+  const values = [id];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to get account books", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    // console.log("results", results);
+    res.status(200).json({ accountBookList: results });
+  });
+});
+
 app.listen(6789, () => {
   console.log("Server Listening on Port 6789...");
 });
