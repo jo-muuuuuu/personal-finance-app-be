@@ -260,11 +260,11 @@ const authMiddleware = (req, res, next) => {
 app.post("/api/account-books", authMiddleware, (req, res) => {
   const { id, name, tag, description } = req.body;
 
-  const newQuery =
+  const query =
     "INSERT INTO account_books (user_id, name, tag, description) VALUES (?, ?, ?, ?)";
-  const newValues = [id, name, tag, description];
+  const values = [id, name, tag, description];
 
-  connection.query(newQuery, newValues, (error, results) => {
+  connection.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to create new account book", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -272,6 +272,26 @@ app.post("/api/account-books", authMiddleware, (req, res) => {
 
     // console.log(result);
     res.status(200).json({ message: "New accound book created!" });
+  });
+});
+
+app.put("/api/account-books", authMiddleware, (req, res) => {
+  console.log("req.body", req.body);
+  const { accountBookId, userId, name, tag, description } = req.body;
+
+  const query =
+    "UPDATE account_books SET user_id = ?, name = ?, tag = ?, description = ? WHERE id = ?;";
+  const values = [userId, name, tag, description, accountBookId];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to update account book", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    console.log(results);
+
+    res.status(200).json({ message: "Accound book updated!" });
   });
 });
 
@@ -290,6 +310,23 @@ app.get("/api/account-books", authMiddleware, (req, res) => {
 
     // console.log("results", results);
     res.status(200).json({ accountBookList: results });
+  });
+});
+
+app.delete("/api/account-books", authMiddleware, (req, res) => {
+  const id = req.headers.accountbookid;
+  console.log("id", id);
+  const query = "DELETE FROM account_books WHERE id = ?;";
+  const values = [id];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to delete account book", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    console.log(results);
+    res.status(200).json({ message: "Deleted" });
   });
 });
 
