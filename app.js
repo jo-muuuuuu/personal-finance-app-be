@@ -330,6 +330,41 @@ app.delete("/api/account-books", authMiddleware, (req, res) => {
   });
 });
 
+app.post("/api/transactions", authMiddleware, (req, res) => {
+  // console.log(req.body);
+  // const id = req.headers["id"];
+  const { id, amount, date, type, description, select, category } = req.body;
+
+  const newDate = new Date(date);
+  const account_book_id = select.key;
+  const account_book_name = select.label;
+
+  // console.log(amount, date, type, description, select, categorySelected);
+
+  const query =
+    "INSERT INTO transactions ( user_id, account_book_id, account_book_name, amount, category, description, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+  const values = [
+    id,
+    account_book_id,
+    account_book_name,
+    amount,
+    category,
+    description,
+    newDate,
+    type,
+  ];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to create new transaction", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    // console.log(result);
+    res.status(200).json({ message: "New transaction added!" });
+  });
+});
+
 app.listen(6789, () => {
   console.log("Server Listening on Port 6789...");
 });
