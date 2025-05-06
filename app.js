@@ -275,9 +275,10 @@ app.post("/api/account-books", authMiddleware, (req, res) => {
   });
 });
 
-app.put("/api/account-books", authMiddleware, (req, res) => {
-  console.log("req.body", req.body);
-  const { accountBookId, userId, name, tag, description } = req.body;
+app.put("/api/account-books/:id", authMiddleware, (req, res) => {
+  // console.log("req.body", req.body);
+  const { userId, name, tag, description } = req.body;
+  const accountBookId = req.params.id;
 
   const query =
     "UPDATE account_books SET user_id = ?, name = ?, tag = ?, description = ? WHERE id = ?;";
@@ -289,7 +290,7 @@ app.put("/api/account-books", authMiddleware, (req, res) => {
       return res.status(500).json({ error: "Internal Server Error" });
     }
 
-    console.log(results);
+    // console.log(results);
 
     res.status(200).json({ message: "Accound book updated!" });
   });
@@ -297,7 +298,7 @@ app.put("/api/account-books", authMiddleware, (req, res) => {
 
 app.get("/api/account-books", authMiddleware, (req, res) => {
   const { id } = req.headers;
-  console.log("id", id);
+  // console.log("id", id);
 
   const query = "SELECT * FROM account_books WHERE user_id = ?;";
   const values = [id];
@@ -313,11 +314,11 @@ app.get("/api/account-books", authMiddleware, (req, res) => {
   });
 });
 
-app.delete("/api/account-books", authMiddleware, (req, res) => {
-  const id = req.headers.accountbookid;
-  console.log("id", id);
+app.delete("/api/account-books/:id", authMiddleware, (req, res) => {
+  const accountBookId = req.params.id;
+  // console.log("id", id);
   const query = "DELETE FROM account_books WHERE id = ?;";
-  const values = [id];
+  const values = [accountBookId];
 
   connection.query(query, values, (error, results) => {
     if (error) {
@@ -325,7 +326,7 @@ app.delete("/api/account-books", authMiddleware, (req, res) => {
       return res.status(500).json({ error: "Internal Server Error" });
     }
 
-    console.log(results);
+    // console.log(results);
     res.status(200).json({ message: "Deleted" });
   });
 });
@@ -362,6 +363,87 @@ app.post("/api/transactions", authMiddleware, (req, res) => {
 
     // console.log(result);
     res.status(200).json({ message: "New transaction added!" });
+  });
+});
+
+app.get("/api/transactions", authMiddleware, (req, res) => {
+  const { id } = req.headers;
+  // console.log("id", id);
+
+  const query = "SELECT * FROM transactions WHERE user_id = ?;";
+  const values = [id];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to get transactions", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    // console.log("results", results);
+    res.status(200).json({ transactionList: results });
+  });
+});
+
+app.delete("/api/transactions/:id", authMiddleware, (req, res) => {
+  const id = req.params.id;
+  // console.log("id", id);
+
+  const query = "DELETE FROM transactions WHERE id = ?;";
+  const values = [id];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to delete transaction", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    // console.log(results);
+    res.status(200).json({ message: "Deleted" });
+  });
+});
+
+app.put("/api/transactions/:id", authMiddleware, (req, res) => {
+  const transactionId = req.params.id;
+
+  const { userId, amount, date, type, description, select, category } = req.body;
+
+  // console.log(select);
+  const newDate = new Date(date);
+  const account_book_id = select.value;
+  const account_book_name = select.label;
+
+  const query = `
+    UPDATE transactions 
+    SET user_id = ?, 
+        account_book_id = ?, 
+        account_book_name = ?, 
+        amount = ?, 
+        category = ?, 
+        description = ?, 
+        date = ?, 
+        type = ?
+    WHERE id = ?
+  `;
+
+  const values = [
+    userId,
+    account_book_id,
+    account_book_name,
+    amount,
+    category,
+    description,
+    newDate,
+    type,
+    transactionId,
+  ];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to update transaction", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    res.status(200).json({ message: "Transaction updated successfully!" });
   });
 });
 
