@@ -258,11 +258,11 @@ const authMiddleware = (req, res, next) => {
 };
 
 app.post("/api/account-books", authMiddleware, (req, res) => {
-  const { id, name, tag, description } = req.body;
+  const { userId, name, tag, description } = req.body;
 
   const query =
     "INSERT INTO account_books (user_id, name, tag, description) VALUES (?, ?, ?, ?)";
-  const values = [id, name, tag, description];
+  const values = [userId, name, tag, description];
 
   connection.query(query, values, (error, results) => {
     if (error) {
@@ -334,7 +334,7 @@ app.delete("/api/account-books/:id", authMiddleware, (req, res) => {
 app.post("/api/transactions", authMiddleware, (req, res) => {
   // console.log(req.body);
   // const id = req.headers["id"];
-  const { id, amount, date, type, description, select, category } = req.body;
+  const { userId, amount, date, type, description, select, category } = req.body;
 
   const newDate = new Date(date);
   const account_book_id = select.key;
@@ -345,7 +345,7 @@ app.post("/api/transactions", authMiddleware, (req, res) => {
   const query =
     "INSERT INTO transactions ( user_id, account_book_id, account_book_name, amount, category, description, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
   const values = [
-    id,
+    userId,
     account_book_id,
     account_book_name,
     amount,
