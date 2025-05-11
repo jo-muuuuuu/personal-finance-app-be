@@ -337,6 +337,8 @@ app.post("/api/transactions", authMiddleware, (req, res) => {
   const { userId, amount, date, type, description, select, category } = req.body;
 
   const newDate = new Date(date);
+
+  // console.log(select);
   const account_book_id = select.key;
   const account_book_name = select.label;
 
@@ -409,7 +411,7 @@ app.put("/api/transactions/:id", authMiddleware, (req, res) => {
 
   // console.log(select);
   const newDate = new Date(date);
-  const account_book_id = select.value;
+  const account_book_id = select.key;
   const account_book_name = select.label;
 
   const query = `
