@@ -4,7 +4,6 @@ const bcrypt = require("bcryptjs");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
-const { google } = require("googleapis");
 
 const app = express();
 app.use(express.json());
@@ -25,31 +24,31 @@ connection.connect((error) => {
   console.log("Connected to the database!");
 });
 
-const oAuth2Client = new google.auth.OAuth2(
-  process.env.CLIENT_ID,
-  process.env.CLIENT_SECRET,
-  process.env.REDIRECT_URI
-);
+const authMiddleware = (req, res, next) => {
+  const token = req.headers.token;
 
-oAuth2Client.setCredentials({
-  refresh_token: process.env.REFRESH_TOKEN,
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, jwtSecretKey);
+
+    next();
+  } catch (error) {
+    console.error("Failed to verify token", error);
+
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+};
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USERNAME,
+    pass: process.env.EMAIL_PASSWORD,
+  },
 });
-
-async function setupTransporter() {
-  const accessToken = await oAuth2Client.getAccessToken();
-
-  return nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      type: "OAuth2",
-      user: process.env.EMAIL_USERNAME,
-      clientId: process.env.CLIENT_ID,
-      clientSecret: process.env.CLIENT_SECRET,
-      refreshToken: process.env.REFRESH_TOKEN,
-      accessToken: accessToken.token,
-    },
-  });
-}
 
 app.post("/api/register", (req, res) => {
   //   console.log(req.body);
@@ -158,15 +157,13 @@ app.post("/api/forgot-password", (req, res) => {
         text: `Click the link to reset your password: http://localhost:3000/reset-password/${token}`,
       };
 
-      setupTransporter().then((transporter) => {
-        transporter.sendMail(mailOptions, (error, info) => {
-          if (error) {
-            console.error("Failed to send email", error);
-            return res.status(500).json({ error: "Internal Server Error" });
-          }
+      transporter.sendMail(mailOptions, (error, info) => {
+        if (error) {
+          console.error("Failed to send email", error);
+          return res.status(500).json({ error: "Internal Server Error" });
+        }
 
-          res.status(200).json({ message: "Password reset email sent!" });
-        });
+        res.status(200).json({ message: "Password reset email sent!" });
       });
     });
   });
@@ -239,24 +236,6 @@ app.post("/api/reset-password", (req, res) => {
   }
 });
 
-const authMiddleware = (req, res, next) => {
-  const token = req.headers.token;
-
-  if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  try {
-    const decoded = jwt.verify(token, jwtSecretKey);
-
-    next();
-  } catch (error) {
-    console.error("Failed to verify token", error);
-
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-};
-
 app.post("/api/account-books", authMiddleware, (req, res) => {
   const { userId, name, tag, description } = req.body;
 
@@ -300,7 +279,7 @@ app.get("/api/account-books", authMiddleware, (req, res) => {
   const { id } = req.headers;
   // console.log("id", id);
 
-  const query = "SELECT * FROM account_books WHERE user_id = ?;";
+  const query = "SELECT * FROM account_books WHERE user_id = ? ORDER BY created_at DESC;";
   const values = [id];
 
   connection.query(query, values, (error, results) => {
@@ -332,11 +311,11 @@ app.delete("/api/account-books/:id", authMiddleware, (req, res) => {
 });
 
 app.post("/api/transactions", authMiddleware, (req, res) => {
-  // console.log(req.body);
-  // const id = req.headers["id"];
   const { userId, amount, date, type, description, select, category } = req.body;
 
+  // console.log("date", date);
   const newDate = new Date(date);
+  // console.log("New date", newDate);
 
   // console.log(select);
   const account_book_id = select.key;
@@ -372,7 +351,7 @@ app.get("/api/transactions", authMiddleware, (req, res) => {
   const { id } = req.headers;
   // console.log("id", id);
 
-  const query = "SELECT * FROM transactions WHERE user_id = ?;";
+  const query = "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC;";
   const values = [id];
 
   connection.query(query, values, (error, results) => {
@@ -381,7 +360,7 @@ app.get("/api/transactions", authMiddleware, (req, res) => {
       return res.status(500).json({ error: "Internal Server Error" });
     }
 
-    // console.log("results", results);
+    // console.log(results);
     res.status(200).json({ transactionList: results });
   });
 });
@@ -409,8 +388,9 @@ app.put("/api/transactions/:id", authMiddleware, (req, res) => {
 
   const { userId, amount, date, type, description, select, category } = req.body;
 
-  // console.log(select);
   const newDate = new Date(date);
+
+  // console.log(select);
   const account_book_id = select.key;
   const account_book_name = select.label;
 
@@ -446,6 +426,110 @@ app.put("/api/transactions/:id", authMiddleware, (req, res) => {
     }
 
     res.status(200).json({ message: "Transaction updated successfully!" });
+  });
+});
+
+app.get("/api/account-books-summary/:userId", authMiddleware, (req, res) => {
+  const userId = req.params.userId;
+
+  const query = `
+    SELECT 
+      account_books.name AS account_book_name,
+      SUM(CASE WHEN transactions.type = 'income' THEN transactions.amount ELSE 0 END) AS total_income,
+      SUM(CASE WHEN transactions.type = 'expense' THEN transactions.amount ELSE 0 END) AS total_expense
+    FROM account_books
+    LEFT JOIN transactions ON account_books.id = transactions.account_book_id
+    WHERE account_books.user_id = ?
+    GROUP BY account_books.id, account_books.name
+    ORDER BY account_books.name;
+  `;
+
+  const values = [userId];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to get account book summary", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    res.status(200).json(results);
+  });
+});
+
+app.get("/api/monthly-summary/:userId", authMiddleware, (req, res) => {
+  const userId = req.params.userId;
+
+  const query = `
+    SELECT 
+      DATE_FORMAT(date, '%Y-%m') AS month,
+      SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS total_income,
+      SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS total_expense
+    FROM transactions
+    WHERE user_id = ?
+    GROUP BY month
+    ORDER BY month;
+  `;
+
+  const values = [userId];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to get monthly summary", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    res.status(200).json(results);
+  });
+});
+
+app.get("/api/top-categories/:userId", authMiddleware, (req, res) => {
+  const userId = req.params.userId;
+
+  const query = `
+    SELECT 
+      category,
+      SUM(amount) AS total
+    FROM transactions
+    WHERE user_id = ? AND type = 'expense'
+    GROUP BY category
+    ORDER BY total DESC
+    LIMIT 5;
+  `;
+
+  const values = [userId];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to get top 5 categories", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    res.status(200).json(results);
+  });
+});
+
+app.get("/api/category-ratio/:userId", authMiddleware, (req, res) => {
+  const userId = req.params.userId;
+
+  const query = `
+    SELECT 
+      category,
+      SUM(amount) AS total
+    FROM transactions
+    WHERE user_id = ? AND type = 'expense'
+    GROUP BY category
+    ORDER BY total DESC;
+  `;
+
+  const values = [userId];
+
+  connection.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to get expense category ratio", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    res.status(200).json(results);
   });
 });
 

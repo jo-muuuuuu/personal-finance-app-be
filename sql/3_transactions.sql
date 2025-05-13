@@ -14,5 +14,6 @@ CREATE TABLE transactions (
 );
 
 ALTER TABLE transactions ADD account_book_name VARCHAR(255) AFTER account_book_id;
+ALTER TABLE transactions ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 SELECT * FROM transactions;

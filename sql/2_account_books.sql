@@ -9,4 +9,6 @@ CREATE TABLE account_books (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+ALTER TABLE account_books ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
 SELECT * FROM account_books;
