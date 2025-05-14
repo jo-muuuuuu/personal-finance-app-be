@@ -154,7 +154,8 @@ app.post("/api/forgot-password", (req, res) => {
         from: process.env.EMAIL_USERNAME,
         to: email,
         subject: "Password Reset",
-        text: `Click the link to reset your password: http://localhost:3000/reset-password/${token}`,
+        // text: `Click the link to reset your password: ${process.env.PUBLIC_IP}/reset-password/${token}`,
+        text: `Click the link to reset your password: ${process.env.PUBLIC_IP}/reset-password/${token}`,
       };
 
       transporter.sendMail(mailOptions, (error, info) => {
