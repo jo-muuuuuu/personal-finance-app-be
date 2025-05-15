@@ -13,9 +13,9 @@ require("dotenv").config();
 const mysqlConfig = JSON.parse(process.env.MYSQL_CONFIGURATION);
 const jwtSecretKey = process.env.JWT_SECRET;
 
-const connection = mysql.createConnection(mysqlConfig);
+const pool = mysql.createPool(mysqlConfig);
 
-connection.connect((error) => {
+pool.connect((error) => {
   if (error) {
     console.log("Failed to connect to the database, reason: ", error);
     return;
@@ -64,7 +64,7 @@ app.post("/api/register", (req, res) => {
     const query = "INSERT INTO users (nickname, email, password) VALUES (?, ?, ?)";
     const values = [nickname, email, hashedPassword];
 
-    connection.query(query, values, (error, result) => {
+    pool.query(query, values, (error, result) => {
       if (error) {
         if (error.code === "ER_DUP_ENTRY") {
           return res.status(409).json({ error: "User already exists" });
@@ -88,7 +88,7 @@ app.post("/api/login", (req, res) => {
   const query = "SELECT id, nickname, password FROM users WHERE email = ?;";
   const values = [username];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to login", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -127,7 +127,7 @@ app.post("/api/forgot-password", (req, res) => {
   const query = "SELECT id FROM users WHERE email = ?;";
   const values = [email];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to find user", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -144,7 +144,7 @@ app.post("/api/forgot-password", (req, res) => {
       "UPDATE users SET reset_token = ?, reset_token_expiration = ? WHERE email = ?;";
     const tokenValues = [token, expiration, email];
 
-    connection.query(tokenQuery, tokenValues, (error, result) => {
+    pool.query(tokenQuery, tokenValues, (error, result) => {
       if (error) {
         console.error("Failed to update token in database", error);
         return res.status(500).json({ error: "Internal Server Error" });
@@ -180,7 +180,7 @@ app.get("/api/validate-token", (req, res) => {
       "SELECT * FROM users WHERE reset_token = ? AND reset_token_expiration > NOW();";
     const values = [token];
 
-    connection.query(query, values, (error, results) => {
+    pool.query(query, values, (error, results) => {
       if (error) {
         console.error("Failed to validate token", error);
 
@@ -220,7 +220,7 @@ app.post("/api/reset-password", (req, res) => {
         "UPDATE users SET password = ?, reset_token = NULL, reset_token_expiration = NULL WHERE email = ?;";
       const values = [hashedPassword, email];
 
-      connection.query(query, values, (error, result) => {
+      pool.query(query, values, (error, result) => {
         if (error) {
           console.error("Failed to update password", error);
 
@@ -244,7 +244,7 @@ app.post("/api/account-books", authMiddleware, (req, res) => {
     "INSERT INTO account_books (user_id, name, tag, description) VALUES (?, ?, ?, ?)";
   const values = [userId, name, tag, description];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to create new account book", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -264,7 +264,7 @@ app.put("/api/account-books/:id", authMiddleware, (req, res) => {
     "UPDATE account_books SET user_id = ?, name = ?, tag = ?, description = ? WHERE id = ?;";
   const values = [userId, name, tag, description, accountBookId];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to update account book", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -283,7 +283,7 @@ app.get("/api/account-books", authMiddleware, (req, res) => {
   const query = "SELECT * FROM account_books WHERE user_id = ? ORDER BY created_at DESC;";
   const values = [id];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to get account books", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -300,7 +300,7 @@ app.delete("/api/account-books/:id", authMiddleware, (req, res) => {
   const query = "DELETE FROM account_books WHERE id = ?;";
   const values = [accountBookId];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to delete account book", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -337,7 +337,7 @@ app.post("/api/transactions", authMiddleware, (req, res) => {
     type,
   ];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to create new transaction", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -355,7 +355,7 @@ app.get("/api/transactions", authMiddleware, (req, res) => {
   const query = "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC;";
   const values = [id];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to get transactions", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -373,7 +373,7 @@ app.delete("/api/transactions/:id", authMiddleware, (req, res) => {
   const query = "DELETE FROM transactions WHERE id = ?;";
   const values = [id];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to delete transaction", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -420,7 +420,7 @@ app.put("/api/transactions/:id", authMiddleware, (req, res) => {
     transactionId,
   ];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to update transaction", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -447,7 +447,7 @@ app.get("/api/account-books-summary/:userId", authMiddleware, (req, res) => {
 
   const values = [userId];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to get account book summary", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -473,7 +473,7 @@ app.get("/api/monthly-summary/:userId", authMiddleware, (req, res) => {
 
   const values = [userId];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to get monthly summary", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -499,7 +499,7 @@ app.get("/api/top-categories/:userId", authMiddleware, (req, res) => {
 
   const values = [userId];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to get top 5 categories", error);
       return res.status(500).json({ error: "Internal Server Error" });
@@ -524,7 +524,7 @@ app.get("/api/category-ratio/:userId", authMiddleware, (req, res) => {
 
   const values = [userId];
 
-  connection.query(query, values, (error, results) => {
+  pool.query(query, values, (error, results) => {
     if (error) {
       console.error("Failed to get expense category ratio", error);
       return res.status(500).json({ error: "Internal Server Error" });
