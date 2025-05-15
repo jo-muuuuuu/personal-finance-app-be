@@ -15,14 +15,14 @@ const jwtSecretKey = process.env.JWT_SECRET;
 
 const pool = mysql.createPool(mysqlConfig);
 
-pool.connect((error) => {
-  if (error) {
-    console.log("Failed to connect to the database, reason: ", error);
-    return;
-  }
+// pool.connect((error) => {
+//   if (error) {
+//     console.log("Failed to connect to the database, reason: ", error);
+//     return;
+//   }
 
-  console.log("Connected to the database!");
-});
+//   console.log("Connected to the database!");
+// });
 
 const authMiddleware = (req, res, next) => {
   const token = req.headers.token;
