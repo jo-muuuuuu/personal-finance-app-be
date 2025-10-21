@@ -237,6 +237,66 @@ app.post("/api/reset-password", (req, res) => {
   }
 });
 
+app.post("/api/profile-reset-password", (req, res) => {
+  const { token, oldPassword, newPassword } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, jwtSecretKey);
+    const email = decoded.email;
+
+    const query = "SELECT password FROM users WHERE email = ?;";
+    const values = [email];
+
+    pool.query(query, values, (error, results) => {
+      if (error) {
+        console.error("Database query error:", error);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
+
+      if (results.length === 0) {
+        return res.status(401).json({ error: "User does not exist" });
+      }
+
+      const { password: hashedPassword } = results[0];
+
+      bcrypt.compare(oldPassword, hashedPassword, (compareError, isMatch) => {
+        if (compareError) {
+          console.error("Password comparison error:", compareError);
+          return res.status(500).json({ error: "Internal Server Error" });
+        }
+
+        if (!isMatch) {
+          return res.status(401).json({ error: "Incorrect old password!" });
+        }
+
+        // Old password is correct, proceed to hash the new password
+        bcrypt.hash(newPassword, 10, (hashError, newHashedPassword) => {
+          if (hashError) {
+            console.error("Password hashing error:", hashError);
+            return res.status(500).json({ error: "Internal Server Error" });
+          }
+
+          const updateQuery =
+            "UPDATE users SET password = ?, reset_token = NULL, reset_token_expiration = NULL WHERE email = ?;";
+          const updateValues = [newHashedPassword, email];
+
+          pool.query(updateQuery, updateValues, (updateError, result) => {
+            if (updateError) {
+              console.error("Password update error:", updateError);
+              return res.status(500).json({ error: "Internal Server Error" });
+            }
+
+            res.status(200).json({ message: "Password updated successfully!" });
+          });
+        });
+      });
+    });
+  } catch (error) {
+    console.error("Token verification error:", error);
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+});
+
 app.post("/api/account-books", authMiddleware, (req, res) => {
   const { userId, name, tag, description } = req.body;
 
