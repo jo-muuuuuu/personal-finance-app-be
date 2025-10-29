@@ -4,10 +4,21 @@ const bcrypt = require("bcryptjs");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
+const multer = require("multer");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+app.use("/api/uploads", express.static(path.join(__dirname, "uploads")));
+const storage = multer.diskStorage({
+  destination: "uploads/",
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname));
+  },
+});
+const upload = multer({ storage });
 
 require("dotenv").config();
 const mysqlConfig = JSON.parse(process.env.MYSQL_CONFIGURATION);
@@ -15,14 +26,15 @@ const jwtSecretKey = process.env.JWT_SECRET;
 
 const pool = mysql.createPool(mysqlConfig);
 
-// pool.connect((error) => {
-//   if (error) {
-//     console.log("Failed to connect to the database, reason: ", error);
-//     return;
-//   }
+pool.getConnection((error, connection) => {
+  if (error) {
+    console.log("Failed to connect to the database, reason: ", error);
+    return;
+  }
 
-//   console.log("Connected to the database!");
-// });
+  console.log("Connected to the database!");
+  connection.release();
+});
 
 const authMiddleware = (req, res, next) => {
   const token = req.headers.token;
@@ -85,7 +97,7 @@ app.post("/api/login", (req, res) => {
 
   const { username, password } = req.body;
 
-  const query = "SELECT id, nickname, password FROM users WHERE email = ?;";
+  const query = "SELECT id, nickname, password, avatar_url FROM users WHERE email = ?;";
   const values = [username];
 
   pool.query(query, values, (error, results) => {
@@ -98,7 +110,7 @@ app.post("/api/login", (req, res) => {
       return res.status(401).json({ error: "User does not exist" });
     }
 
-    const { id, nickname, password: hashedPassword } = results[0];
+    const { id, nickname, password: hashedPassword, avatar_url: avatarURL } = results[0];
 
     bcrypt.compare(password, hashedPassword, (error, isMatch) => {
       if (error) {
@@ -114,7 +126,7 @@ app.post("/api/login", (req, res) => {
         expiresIn: "1h",
       });
 
-      res.status(200).json({ id, nickname, username, token });
+      res.status(200).json({ id, nickname, username, avatarURL, token });
     });
   });
 });
@@ -242,7 +254,7 @@ app.post("/api/profile-reset-password", (req, res) => {
 
   try {
     const decoded = jwt.verify(token, jwtSecretKey);
-    const email = decoded.email;
+    const email = decoded.username;
 
     const query = "SELECT password FROM users WHERE email = ?;";
     const values = [email];
@@ -294,6 +306,31 @@ app.post("/api/profile-reset-password", (req, res) => {
   } catch (error) {
     console.error("Token verification error:", error);
     return res.status(401).json({ error: "Invalid or expired token" });
+  }
+});
+
+app.post("/api/upload-avatar", authMiddleware, upload.single("image"), (req, res) => {
+  try {
+    const { email } = req.headers;
+    const avatarPath = `/uploads/${req.file.filename}`;
+
+    const query = "UPDATE users SET avatar_url = ? WHERE email = ?";
+    const values = [avatarPath, email];
+
+    pool.query(query, values, (error, result) => {
+      if (error) {
+        console.error("Failed to update avatar", error);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
+
+      res.status(200).json({
+        message: "Avatar uploaded successfully",
+        avatarURL: avatarPath,
+      });
+    });
+  } catch (err) {
+    console.error("Upload avatar error:", err);
+    res.status(500).json({ error: "Failed to upload avatar" });
   }
 });
 

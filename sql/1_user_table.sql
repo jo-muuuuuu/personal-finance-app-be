@@ -9,6 +9,7 @@ CREATE TABLE users (
 
 ALTER TABLE users ADD reset_token VARCHAR(255);
 ALTER TABLE users ADD reset_token_expiration DATETIME;
+ALTER TABLE users ADD avatar_url VARCHAR(512);
 
 SELECT * FROM users;
 
