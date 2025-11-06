@@ -527,6 +527,71 @@ app.put("/api/transactions/:id", authMiddleware, (req, res) => {
   });
 });
 
+app.post("/api/saving-plans", authMiddleware, (req, res) => {
+  // console.log("req.body", req.body);
+
+  const {
+    userId,
+    name,
+    description,
+    start_date,
+    end_date,
+    amount,
+    period,
+    totalPeriods,
+    amountPerPeriod,
+  } = req.body;
+
+  const newStartDate = new Date(start_date);
+  const newEndDate = new Date(end_date);
+
+  const query =
+    "INSERT INTO saving_plans (user_id, name, description, start_date, end_date, amount, period, total_periods, amount_per_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+  const values = [
+    userId,
+    name,
+    description,
+    newStartDate,
+    newEndDate,
+    amount,
+    period,
+    totalPeriods,
+    amountPerPeriod,
+  ];
+
+  pool.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to create new saving plan", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    // console.log(result);
+    res.status(200).json({ message: "New saving plan created!" });
+  });
+});
+
+app.get("/api/saving-plans", authMiddleware, (req, res) => {
+  const { id } = req.headers;
+  // console.log("id", id);
+
+  const query = "SELECT * FROM saving_plans WHERE user_id = ? ORDER BY created_at DESC;";
+  const values = [id];
+
+  pool.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to get saving plans", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    // console.log("results", results);
+    res.status(200).json({ savingPlanList: results });
+  });
+});
+
+app.put("/api/saving-plans/:id", authMiddleware, (req, res) => {});
+
+app.delete("/api/saving-plans/:id", authMiddleware, (req, res) => {});
+
 app.get("/api/account-books-summary/:userId", authMiddleware, (req, res) => {
   const userId = req.params.userId;
 
