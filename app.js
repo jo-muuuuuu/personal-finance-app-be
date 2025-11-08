@@ -588,9 +588,66 @@ app.get("/api/saving-plans", authMiddleware, (req, res) => {
   });
 });
 
-app.put("/api/saving-plans/:id", authMiddleware, (req, res) => {});
+app.put("/api/saving-plans/:id", authMiddleware, (req, res) => {
+  const {
+    userId,
+    name,
+    description,
+    start_date,
+    end_date,
+    amount,
+    period,
+    totalPeriods,
+    amountPerPeriod,
+  } = req.body;
 
-app.delete("/api/saving-plans/:id", authMiddleware, (req, res) => {});
+  const savingPlanId = req.params.id;
+
+  const newStartDate = new Date(start_date);
+  const newEndDate = new Date(end_date);
+
+  const query =
+    "UPDATE saving_plans SET user_id = ?, name = ?, description = ?, start_date = ?, end_date = ?, amount = ?, period = ?, total_periods = ?, amount_per_period =? WHERE id = ?;";
+  const values = [
+    userId,
+    name,
+    description,
+    newStartDate,
+    newEndDate,
+    amount,
+    period,
+    totalPeriods,
+    amountPerPeriod,
+    savingPlanId,
+  ];
+
+  pool.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to update saving plan", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    // console.log(result);
+    res.status(200).json({ message: "Saving plan updated!" });
+  });
+});
+
+app.delete("/api/saving-plans/:id", authMiddleware, (req, res) => {
+  const savingPlanId = req.params.id;
+  // console.log("id", id);
+  const query = "DELETE FROM saving_plans WHERE id = ?;";
+  const values = [savingPlanId];
+
+  pool.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to delete saving plan", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+
+    // console.log(results);
+    res.status(200).json({ message: "Deleted" });
+  });
+});
 
 app.get("/api/account-books-summary/:userId", authMiddleware, (req, res) => {
   const userId = req.params.userId;
