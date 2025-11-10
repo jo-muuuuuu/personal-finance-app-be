@@ -25,6 +25,7 @@ const mysqlConfig = JSON.parse(process.env.MYSQL_CONFIGURATION);
 const jwtSecretKey = process.env.JWT_SECRET;
 
 const pool = mysql.createPool(mysqlConfig);
+// const pool = mysql.createPool(mysqlConfig).promise();
 
 pool.getConnection((error, connection) => {
   if (error) {
@@ -527,6 +528,48 @@ app.put("/api/transactions/:id", authMiddleware, (req, res) => {
   });
 });
 
+function generateDepositDates(startDate, endDate, period, totalPeriods) {
+  const depositDates = [];
+  console.log("received", startDate, endDate, period, totalPeriods);
+
+  if (!startDate || !endDate || !period || !totalPeriods) {
+    console.warn("generateDepositDates: Missing required parameters.");
+    return depositDates;
+  }
+
+  for (let i = 0; i < totalPeriods; i++) {
+    const nextDate = new Date(startDate);
+
+    switch (period) {
+      case "week":
+        nextDate.setDate(startDate.getDate() + i * 7);
+        break;
+      case "fortnight":
+        nextDate.setDate(startDate.getDate() + i * 14);
+        break;
+      case "month":
+        nextDate.setMonth(startDate.getMonth() + i);
+        break;
+      case "quarter":
+        nextDate.setMonth(startDate.getMonth() + i * 3);
+        break;
+      case "year":
+        nextDate.setFullYear(startDate.getFullYear() + i);
+        break;
+      default:
+        console.warn(`Unsupported period type: ${period}`);
+        return depositDates;
+    }
+
+    if (nextDate > endDate) break;
+
+    const formatted = nextDate.toISOString().split("T")[0];
+    depositDates.push(formatted);
+  }
+
+  return depositDates;
+}
+
 app.post("/api/saving-plans", authMiddleware, (req, res) => {
   // console.log("req.body", req.body);
 
@@ -544,6 +587,8 @@ app.post("/api/saving-plans", authMiddleware, (req, res) => {
 
   const newStartDate = new Date(start_date);
   const newEndDate = new Date(end_date);
+  // console.log("newStartDate", newStartDate);
+  // console.log("newEndDate", newEndDate);
 
   const query =
     "INSERT INTO saving_plans (user_id, name, description, start_date, end_date, amount, period, total_periods, amount_per_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -565,8 +610,34 @@ app.post("/api/saving-plans", authMiddleware, (req, res) => {
       return res.status(500).json({ error: "Internal Server Error" });
     }
 
-    // console.log(result);
-    res.status(200).json({ message: "New saving plan created!" });
+    // console.log(results);
+    // console.log(results.insertId);
+
+    const depositDates = generateDepositDates(
+      newStartDate,
+      newEndDate,
+      period,
+      totalPeriods
+    );
+    // console.log("depositDates", depositDates);
+
+    // [plan_id, user_id, amount, date, status]
+    let depositList = [];
+    depositDates.forEach((date) => {
+      depositList.push([results.insertId, userId, amountPerPeriod, date, "pending"]);
+    });
+
+    const depositQuery =
+      "INSERT INTO deposits (plan_id, user_id, amount, date, status) VALUES ?";
+    pool.query(depositQuery, [depositList], (depositError, depositResults) => {
+      if (depositError) {
+        console.error("Failed to create deposits for saving plan", depositError);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
+
+      // console.log("Deposits created:", depositResults);
+      res.status(200).json({ message: "New saving plan created!" });
+    });
   });
 });
 
@@ -647,6 +718,91 @@ app.delete("/api/saving-plans/:id", authMiddleware, (req, res) => {
     // console.log(results);
     res.status(200).json({ message: "Deleted" });
   });
+});
+
+app.get("/api/deposits", authMiddleware, (req, res) => {
+  const { id } = req.headers;
+  // console.log(req.headers);
+
+  const query = "SELECT * FROM deposits WHERE plan_id = ?;";
+  const values = [id];
+  pool.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to get deposits", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+    // console.log("results", results);
+    res.status(200).json({ depositList: results });
+  });
+});
+
+app.put("/api/deposits/:id", authMiddleware, (req, res) => {
+  const { id, amount, plan_id, editableAmount } = req.body;
+  // console.log("req.body", req.body);
+
+  // update deposit status and amount
+  const finalAmount = editableAmount ? editableAmount : amount;
+  let query = "UPDATE deposits SET status = 'completed', amount = ? WHERE id = ?;";
+  let values = [finalAmount, id];
+
+  pool.query(query, values, (error, results) => {
+    if (error) {
+      console.error("Failed to deposit", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+    // console.log(results);
+  });
+
+  // update saving plan completed_periods and deposited_amount
+  query =
+    "UPDATE saving_plans SET completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ? WHERE id = ?";
+  values = [finalAmount, plan_id];
+
+  pool.query(query, values, (error, results) => {
+    if (error) {
+      console.error(
+        "Failed to update saving plan completed periods and deposited amount",
+        error
+      );
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+    // console.log(results);
+
+    if (!editableAmount) {
+      return res.status(200).json({ message: "Deposit confirmed!" });
+    }
+  });
+
+  if (editableAmount) {
+    // get saving plan details
+    query = "SELECT * FROM saving_plans WHERE id = ?;";
+    values = [plan_id];
+    pool.query(query, values, (error, results) => {
+      if (error) {
+        console.error("Failed to get saving plan", error);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
+
+      // console.log("results", results);
+      const plan = results[0];
+
+      // update deposited_amount and calculate new deposited_amount for all pending saving plans
+      const remainingAmount = plan.amount - plan.deposited_amount;
+      const remainingPeriods = plan.total_periods - plan.completed_periods;
+      const newAmountPerPeriod = remainingAmount / remainingPeriods;
+
+      query = "UPDATE deposits SET amount = ? WHERE plan_id = ? AND status = 'pending';";
+      values = [newAmountPerPeriod, plan_id];
+      pool.query(query, values, (error, results) => {
+        if (error) {
+          console.error("Failed to update pending deposits", error);
+          return res.status(500).json({ error: "Internal Server Error" });
+        }
+        // console.log("results", results);
+        return res.status(200).json({ message: "Deposit confirmed!" });
+      });
+    });
+  }
 });
 
 app.get("/api/account-books-summary/:userId", authMiddleware, (req, res) => {

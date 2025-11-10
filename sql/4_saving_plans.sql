@@ -18,5 +18,7 @@ CREATE TABLE saving_plans (
 );
 
 ALTER TABLE saving_plans ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE saving_plans ADD COLUMN deposited_amount DECIMAL(10,2) DEFAULT 0.00 AFTER amount_per_period;
+
 
 SELECT * FROM saving_plans;
