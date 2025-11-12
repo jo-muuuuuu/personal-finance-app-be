@@ -1,5 +1,5 @@
 const express = require("express");
-const mysql = require("mysql2");
+const mysql = require("mysql2/promise");
 const bcrypt = require("bcryptjs");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
@@ -23,19 +23,9 @@ const upload = multer({ storage });
 require("dotenv").config();
 const mysqlConfig = JSON.parse(process.env.MYSQL_CONFIGURATION);
 const jwtSecretKey = process.env.JWT_SECRET;
+// console.log("mysqlConfig", mysqlConfig);
 
 const pool = mysql.createPool(mysqlConfig);
-// const pool = mysql.createPool(mysqlConfig).promise();
-
-pool.getConnection((error, connection) => {
-  if (error) {
-    console.log("Failed to connect to the database, reason: ", error);
-    return;
-  }
-
-  console.log("Connected to the database!");
-  connection.release();
-});
 
 const authMiddleware = (req, res, next) => {
   const token = req.headers.token;
@@ -63,49 +53,37 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-app.post("/api/register", (req, res) => {
+app.post("/api/register", async (req, res) => {
   //   console.log(req.body);
-
   const { nickname, email, password } = req.body;
 
-  bcrypt.hash(password, 10, (error, hashedPassword) => {
-    if (error) {
-      console.error("Failed to encrypt password!", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     const query = "INSERT INTO users (nickname, email, password) VALUES (?, ?, ?)";
     const values = [nickname, email, hashedPassword];
 
-    pool.query(query, values, (error, result) => {
-      if (error) {
-        if (error.code === "ER_DUP_ENTRY") {
-          return res.status(409).json({ error: "User already exists" });
-        } else {
-          console.error("Failed to create new user", error);
-          return res.status(500).json({ error: "Internal Server Error" });
-        }
-      }
+    await pool.query(query, values);
 
-      // console.log(result);
-      res.status(200).json({ message: "New user registered!" });
-    });
-  });
-});
-
-app.post("/api/login", (req, res) => {
-  // console.log(req.body);
-
-  const { username, password } = req.body;
-
-  const query = "SELECT id, nickname, password, avatar_url FROM users WHERE email = ?;";
-  const values = [username];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to login", error);
+    res.status(200).json({ message: "New user registered!" });
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ error: "User already exists" });
+    } else {
+      console.error("Failed to create new user", error);
       return res.status(500).json({ error: "Internal Server Error" });
     }
+  }
+});
+
+app.post("/api/login", async (req, res) => {
+  // console.log(req.body);
+  const { username, password } = req.body;
+
+  try {
+    const query = "SELECT id, nickname, password, avatar_url FROM users WHERE email = ?;";
+    const values = [username];
+    const [results] = await pool.query(query, values); // return [rows, fields]
 
     if (results.length === 0) {
       return res.status(401).json({ error: "User does not exist" });
@@ -113,77 +91,58 @@ app.post("/api/login", (req, res) => {
 
     const { id, nickname, password: hashedPassword, avatar_url: avatarURL } = results[0];
 
-    bcrypt.compare(password, hashedPassword, (error, isMatch) => {
-      if (error) {
-        console.error("Failed to login:", err);
-        return res.status(500).json({ error: "Internal Server Error" });
-      }
-
-      if (!isMatch) {
-        return res.status(401).json({ error: "Wrong email or password!" });
-      }
-
-      const token = jwt.sign({ username }, jwtSecretKey, {
-        expiresIn: "1h",
-      });
-
-      res.status(200).json({ id, nickname, username, avatarURL, token });
-    });
-  });
-});
-
-app.post("/api/forgot-password", (req, res) => {
-  // console.log(req.body);
-
-  const { email } = req.body;
-
-  const query = "SELECT id FROM users WHERE email = ?;";
-  const values = [email];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to find user", error);
-      return res.status(500).json({ error: "Internal Server Error" });
+    const isMatch = await bcrypt.compare(password, hashedPassword);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Wrong email or password!" });
     }
 
+    const token = jwt.sign({ username }, jwtSecretKey, { expiresIn: "1h" });
+
+    res.status(200).json({ id, nickname, username, avatarURL, token });
+  } catch (error) {
+    console.error("Failed to login:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/forgot-password", async (req, res) => {
+  // console.log(req.body);
+  const { email } = req.body;
+
+  try {
+    let query = "SELECT id FROM users WHERE email = ?;";
+    let values = [email];
+    const [results] = await pool.query(query, values);
+
     if (results.length === 0) {
-      return res.status(401).json({ error: "User not found" });
+      return res.status(401).json({ error: "Email not found" });
     }
 
     const token = jwt.sign({ email }, jwtSecretKey, { expiresIn: "15m" });
     const expiration = new Date(Date.now() + 900000);
 
-    const tokenQuery =
+    query =
       "UPDATE users SET reset_token = ?, reset_token_expiration = ? WHERE email = ?;";
-    const tokenValues = [token, expiration, email];
+    values = [token, expiration, email];
+    await pool.query(query, values);
 
-    pool.query(tokenQuery, tokenValues, (error, result) => {
-      if (error) {
-        console.error("Failed to update token in database", error);
-        return res.status(500).json({ error: "Internal Server Error" });
-      }
+    const mailOptions = {
+      from: process.env.EMAIL_USERNAME,
+      to: email,
+      subject: "Password Reset",
+      text: `Click the link to reset your password: ${process.env.PUBLIC_IP}/reset-password/${token}`,
+    };
 
-      const mailOptions = {
-        from: process.env.EMAIL_USERNAME,
-        to: email,
-        subject: "Password Reset",
-        // text: `Click the link to reset your password: ${process.env.PUBLIC_IP}/reset-password/${token}`,
-        text: `Click the link to reset your password: ${process.env.PUBLIC_IP}/reset-password/${token}`,
-      };
+    await transporter.sendMail(mailOptions);
 
-      transporter.sendMail(mailOptions, (error, info) => {
-        if (error) {
-          console.error("Failed to send email", error);
-          return res.status(500).json({ error: "Internal Server Error" });
-        }
-
-        res.status(200).json({ message: "Password reset email sent!" });
-      });
-    });
-  });
+    res.status(200).json({ message: "Password reset email sent!" });
+  } catch (error) {
+    console.error("Failed to process forgot password:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.get("/api/validate-token", (req, res) => {
+app.get("/api/validate-token", async (req, res) => {
   const { token } = req.query;
 
   try {
@@ -193,307 +152,253 @@ app.get("/api/validate-token", (req, res) => {
       "SELECT * FROM users WHERE reset_token = ? AND reset_token_expiration > NOW();";
     const values = [token];
 
-    pool.query(query, values, (error, results) => {
-      if (error) {
-        console.error("Failed to validate token", error);
+    const [results] = await pool.query(query, values);
 
-        return res.status(500).json({ error: "Internal Server Error" });
-      }
+    if (results.length === 0) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
 
-      if (results.length === 0) {
-        return res.status(401).json({ error: "Invalid or expired token" });
-      }
-
-      res.status(200).json({ message: "Token is valid" });
-    });
+    res.status(200).json({ message: "Token is valid" });
   } catch (error) {
-    console.error("Failed to verify token", error);
+    console.error("Failed to validate token", error);
 
-    return res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-app.post("/api/reset-password", (req, res) => {
+app.post("/api/reset-password", async (req, res) => {
   // console.log("req.body", req.body);
-
   const { token, newPassword } = req.body;
 
   try {
     const decoded = jwt.verify(token, jwtSecretKey);
     const email = decoded.email;
 
-    bcrypt.hash(newPassword, 10, (error, hashedPassword) => {
-      if (error) {
-        console.error("Failed to encrypt password", error);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-        return res.status(500).json({ error: "Internal Server Error" });
-      }
+    const query =
+      "UPDATE users SET password = ?, reset_token = NULL, reset_token_expiration = NULL WHERE email = ?;";
+    const values = [hashedPassword, email];
 
-      const query =
-        "UPDATE users SET password = ?, reset_token = NULL, reset_token_expiration = NULL WHERE email = ?;";
-      const values = [hashedPassword, email];
+    const [results] = await pool.query(query, values);
 
-      pool.query(query, values, (error, result) => {
-        if (error) {
-          console.error("Failed to update password", error);
+    if (results.affectedRows === 0) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
 
-          return res.status(500).json({ error: "Internal Server Error" });
-        }
-
-        res.status(200).json({ message: "Password updated successfully!" });
-      });
-    });
+    res.status(200).json({ message: "Password updated successfully!" });
   } catch (error) {
-    console.error("Failed to verify token", error);
-
-    return res.status(401).json({ error: "Invalid or expired token" });
+    if (error.name === "JsonWebTokenError" || error.name === "TokenExpiredError") {
+      console.error("JWT validation failed:", error.message);
+      return res.status(401).json({ error: "Invalid or expired token" });
+    } else {
+      console.error("Unexpected error:", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
   }
 });
 
-app.post("/api/profile-reset-password", (req, res) => {
+app.post("/api/profile-reset-password", async (req, res) => {
   const { token, oldPassword, newPassword } = req.body;
 
   try {
     const decoded = jwt.verify(token, jwtSecretKey);
     const email = decoded.username;
 
-    const query = "SELECT password FROM users WHERE email = ?;";
-    const values = [email];
+    let query = "SELECT password FROM users WHERE email = ?;";
+    let values = [email];
+    const [results] = await pool.query(query, values);
 
-    pool.query(query, values, (error, results) => {
-      if (error) {
-        console.error("Database query error:", error);
-        return res.status(500).json({ error: "Internal Server Error" });
-      }
+    if (results.length === 0) {
+      return res.status(401).json({ error: "User does not exist" });
+    }
 
-      if (results.length === 0) {
-        return res.status(401).json({ error: "User does not exist" });
-      }
+    const { password: hashedPassword } = results[0];
+    const isMatch = await bcrypt.compare(oldPassword, hashedPassword);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Incorrect old password!" });
+    }
 
-      const { password: hashedPassword } = results[0];
+    const newHashedPassword = await bcrypt.hash(newPassword, 10);
+    query =
+      "UPDATE users SET password = ?, reset_token = NULL, reset_token_expiration = NULL WHERE email = ?;";
+    values = [newHashedPassword, email];
 
-      bcrypt.compare(oldPassword, hashedPassword, (compareError, isMatch) => {
-        if (compareError) {
-          console.error("Password comparison error:", compareError);
-          return res.status(500).json({ error: "Internal Server Error" });
-        }
+    const [result] = await pool.query(query, values);
+    if (result.affectedRows === 0) {
+      return res.status(500).json({ error: "Password update failed" });
+    }
 
-        if (!isMatch) {
-          return res.status(401).json({ error: "Incorrect old password!" });
-        }
-
-        // Old password is correct, proceed to hash the new password
-        bcrypt.hash(newPassword, 10, (hashError, newHashedPassword) => {
-          if (hashError) {
-            console.error("Password hashing error:", hashError);
-            return res.status(500).json({ error: "Internal Server Error" });
-          }
-
-          const updateQuery =
-            "UPDATE users SET password = ?, reset_token = NULL, reset_token_expiration = NULL WHERE email = ?;";
-          const updateValues = [newHashedPassword, email];
-
-          pool.query(updateQuery, updateValues, (updateError, result) => {
-            if (updateError) {
-              console.error("Password update error:", updateError);
-              return res.status(500).json({ error: "Internal Server Error" });
-            }
-
-            res.status(200).json({ message: "Password updated successfully!" });
-          });
-        });
-      });
-    });
+    res.status(200).json({ message: "Password updated successfully!" });
   } catch (error) {
-    console.error("Token verification error:", error);
-    return res.status(401).json({ error: "Invalid or expired token" });
+    if (error.name === "JsonWebTokenError" || error.name === "TokenExpiredError") {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    } else {
+      console.error("Failed to reset password:", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
   }
 });
 
-app.post("/api/upload-avatar", authMiddleware, upload.single("image"), (req, res) => {
-  try {
+app.post(
+  "/api/upload-avatar",
+  authMiddleware,
+  upload.single("image"),
+  async (req, res) => {
     const { email } = req.headers;
     const avatarPath = `/uploads/${req.file.filename}`;
 
-    const query = "UPDATE users SET avatar_url = ? WHERE email = ?";
-    const values = [avatarPath, email];
-
-    pool.query(query, values, (error, result) => {
-      if (error) {
-        console.error("Failed to update avatar", error);
-        return res.status(500).json({ error: "Internal Server Error" });
-      }
+    try {
+      const query = "UPDATE users SET avatar_url = ? WHERE email = ?";
+      const values = [avatarPath, email];
+      await pool.query(query, values);
 
       res.status(200).json({
         message: "Avatar uploaded successfully",
         avatarURL: avatarPath,
       });
-    });
-  } catch (err) {
-    console.error("Upload avatar error:", err);
-    res.status(500).json({ error: "Failed to upload avatar" });
+    } catch (err) {
+      console.error("Upload avatar error:", err);
+      res.status(500).json({ error: "Failed to upload avatar" });
+    }
+  }
+);
+
+app.post("/api/account-books", authMiddleware, async (req, res) => {
+  const { userId, name, tag, description } = req.body;
+
+  try {
+    const query =
+      "INSERT INTO account_books (user_id, name, tag, description) VALUES (?, ?, ?, ?)";
+    const values = [userId, name, tag, description];
+    await pool.query(query, values);
+    res.status(200).json({ message: "New account book created!" });
+  } catch (error) {
+    console.error("Failed to create new account book", error);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-app.post("/api/account-books", authMiddleware, (req, res) => {
-  const { userId, name, tag, description } = req.body;
-
-  const query =
-    "INSERT INTO account_books (user_id, name, tag, description) VALUES (?, ?, ?, ?)";
-  const values = [userId, name, tag, description];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to create new account book", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log(result);
-    res.status(200).json({ message: "New accound book created!" });
-  });
-});
-
-app.put("/api/account-books/:id", authMiddleware, (req, res) => {
+app.put("/api/account-books/:id", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
   const { userId, name, tag, description } = req.body;
   const accountBookId = req.params.id;
 
-  const query =
-    "UPDATE account_books SET user_id = ?, name = ?, tag = ?, description = ? WHERE id = ?;";
-  const values = [userId, name, tag, description, accountBookId];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to update account book", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log(results);
-
+  try {
+    const query =
+      "UPDATE account_books SET user_id = ?, name = ?, tag = ?, description = ? WHERE id = ?;";
+    const values = [userId, name, tag, description, accountBookId];
+    await pool.query(query, values);
     res.status(200).json({ message: "Accound book updated!" });
-  });
+  } catch (error) {
+    console.error("Failed to update account book", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.get("/api/account-books", authMiddleware, (req, res) => {
+app.get("/api/account-books", authMiddleware, async (req, res) => {
+  // console.log("id", id);
   const { id } = req.headers;
-  // console.log("id", id);
 
-  const query = "SELECT * FROM account_books WHERE user_id = ? ORDER BY created_at DESC;";
-  const values = [id];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to get account books", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log("results", results);
+  try {
+    const query =
+      "SELECT * FROM account_books WHERE user_id = ? ORDER BY created_at DESC;";
+    const values = [id];
+    const [results] = await pool.query(query, values);
     res.status(200).json({ accountBookList: results });
-  });
+  } catch (error) {
+    console.error("Failed to get account books", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.delete("/api/account-books/:id", authMiddleware, (req, res) => {
-  const accountBookId = req.params.id;
+app.delete("/api/account-books/:id", authMiddleware, async (req, res) => {
   // console.log("id", id);
-  const query = "DELETE FROM account_books WHERE id = ?;";
-  const values = [accountBookId];
+  const accountBookId = req.params.id;
 
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to delete account book", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log(results);
+  try {
+    const query = "DELETE FROM account_books WHERE id = ?;";
+    const values = [accountBookId];
+    await pool.query(query, values);
     res.status(200).json({ message: "Deleted" });
-  });
+  } catch (error) {
+    console.error("Failed to delete account book", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.post("/api/transactions", authMiddleware, (req, res) => {
+app.post("/api/transactions", authMiddleware, async (req, res) => {
   const { userId, amount, date, type, description, select, category } = req.body;
 
-  // console.log("date", date);
   const newDate = new Date(date);
-  // console.log("New date", newDate);
-
-  // console.log(select);
   const account_book_id = select.key;
   const account_book_name = select.label;
 
   // console.log(amount, date, type, description, select, categorySelected);
+  try {
+    const query =
+      "INSERT INTO transactions ( user_id, account_book_id, account_book_name, amount, category, description, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    const values = [
+      userId,
+      account_book_id,
+      account_book_name,
+      amount,
+      category,
+      description,
+      newDate,
+      type,
+    ];
 
-  const query =
-    "INSERT INTO transactions ( user_id, account_book_id, account_book_name, amount, category, description, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-  const values = [
-    userId,
-    account_book_id,
-    account_book_name,
-    amount,
-    category,
-    description,
-    newDate,
-    type,
-  ];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to create new transaction", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log(result);
+    await pool.query(query, values);
     res.status(200).json({ message: "New transaction added!" });
-  });
+  } catch (error) {
+    console.error("Failed to create new transaction", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.get("/api/transactions", authMiddleware, (req, res) => {
+app.get("/api/transactions", authMiddleware, async (req, res) => {
+  // console.log("id", id);
   const { id } = req.headers;
-  // console.log("id", id);
 
-  const query = "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC;";
-  const values = [id];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to get transactions", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log(results);
+  try {
+    const query =
+      "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC;";
+    const values = [id];
+    const [results] = await pool.query(query, values);
     res.status(200).json({ transactionList: results });
-  });
+  } catch (error) {
+    console.error("Failed to get transactions", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.delete("/api/transactions/:id", authMiddleware, (req, res) => {
-  const id = req.params.id;
+app.delete("/api/transactions/:id", authMiddleware, async (req, res) => {
   // console.log("id", id);
+  const id = req.params.id;
 
-  const query = "DELETE FROM transactions WHERE id = ?;";
-  const values = [id];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to delete transaction", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log(results);
+  try {
+    const query = "DELETE FROM transactions WHERE id = ?;";
+    const values = [id];
+    await pool.query(query, values);
     res.status(200).json({ message: "Deleted" });
-  });
+  } catch (error) {
+    console.error("Failed to delete transaction", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.put("/api/transactions/:id", authMiddleware, (req, res) => {
+app.put("/api/transactions/:id", authMiddleware, async (req, res) => {
   const transactionId = req.params.id;
 
   const { userId, amount, date, type, description, select, category } = req.body;
 
   const newDate = new Date(date);
-
-  // console.log(select);
   const account_book_id = select.key;
   const account_book_name = select.label;
 
-  const query = `
+  try {
+    const query = `
     UPDATE transactions 
     SET user_id = ?, 
         account_book_id = ?, 
@@ -505,32 +410,28 @@ app.put("/api/transactions/:id", authMiddleware, (req, res) => {
         type = ?
     WHERE id = ?
   `;
-
-  const values = [
-    userId,
-    account_book_id,
-    account_book_name,
-    amount,
-    category,
-    description,
-    newDate,
-    type,
-    transactionId,
-  ];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to update transaction", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
+    const values = [
+      userId,
+      account_book_id,
+      account_book_name,
+      amount,
+      category,
+      description,
+      newDate,
+      type,
+      transactionId,
+    ];
+    await pool.query(query, values);
     res.status(200).json({ message: "Transaction updated successfully!" });
-  });
+  } catch (error) {
+    console.error("Failed to update transaction", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 function generateDepositDates(startDate, endDate, period, totalPeriods) {
   const depositDates = [];
-  console.log("received", startDate, endDate, period, totalPeriods);
+  // console.log("received", startDate, endDate, period, totalPeriods);
 
   if (!startDate || !endDate || !period || !totalPeriods) {
     console.warn("generateDepositDates: Missing required parameters.");
@@ -570,7 +471,7 @@ function generateDepositDates(startDate, endDate, period, totalPeriods) {
   return depositDates;
 }
 
-app.post("/api/saving-plans", authMiddleware, (req, res) => {
+app.post("/api/saving-plans", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
 
   const {
@@ -587,31 +488,23 @@ app.post("/api/saving-plans", authMiddleware, (req, res) => {
 
   const newStartDate = new Date(start_date);
   const newEndDate = new Date(end_date);
-  // console.log("newStartDate", newStartDate);
-  // console.log("newEndDate", newEndDate);
 
-  const query =
-    "INSERT INTO saving_plans (user_id, name, description, start_date, end_date, amount, period, total_periods, amount_per_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-  const values = [
-    userId,
-    name,
-    description,
-    newStartDate,
-    newEndDate,
-    amount,
-    period,
-    totalPeriods,
-    amountPerPeriod,
-  ];
+  try {
+    let query =
+      "INSERT INTO saving_plans (user_id, name, description, start_date, end_date, amount, period, total_periods, amount_per_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    let values = [
+      userId,
+      name,
+      description,
+      newStartDate,
+      newEndDate,
+      amount,
+      period,
+      totalPeriods,
+      amountPerPeriod,
+    ];
 
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to create new saving plan", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log(results);
-    // console.log(results.insertId);
+    const [results] = await pool.query(query, values);
 
     const depositDates = generateDepositDates(
       newStartDate,
@@ -619,47 +512,59 @@ app.post("/api/saving-plans", authMiddleware, (req, res) => {
       period,
       totalPeriods
     );
-    // console.log("depositDates", depositDates);
 
-    // [plan_id, user_id, amount, date, status]
     let depositList = [];
     depositDates.forEach((date) => {
       depositList.push([results.insertId, userId, amountPerPeriod, date, "pending"]);
     });
 
-    const depositQuery =
-      "INSERT INTO deposits (plan_id, user_id, amount, date, status) VALUES ?";
-    pool.query(depositQuery, [depositList], (depositError, depositResults) => {
-      if (depositError) {
-        console.error("Failed to create deposits for saving plan", depositError);
-        return res.status(500).json({ error: "Internal Server Error" });
-      }
+    query = "INSERT INTO deposits (plan_id, user_id, amount, date, status) VALUES ?";
+    values = [depositList];
 
-      // console.log("Deposits created:", depositResults);
-      res.status(200).json({ message: "New saving plan created!" });
-    });
-  });
+    await pool.query(query, values);
+    res.status(200).json({ message: "New saving plan created!" });
+  } catch (error) {
+    console.error("Failed to create new saving plan", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.get("/api/saving-plans", authMiddleware, (req, res) => {
-  const { id } = req.headers;
+app.get("/api/saving-plans", authMiddleware, async (req, res) => {
   // console.log("id", id);
+  const { id } = req.headers;
 
-  const query = "SELECT * FROM saving_plans WHERE user_id = ? ORDER BY created_at DESC;";
-  const values = [id];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to get saving plans", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log("results", results);
+  try {
+    const query =
+      "SELECT * FROM saving_plans WHERE user_id = ? ORDER BY created_at DESC;";
+    const values = [id];
+    const [results] = await pool.query(query, values);
     res.status(200).json({ savingPlanList: results });
-  });
+  } catch (error) {
+    console.error("Failed to get saving plans", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.put("/api/saving-plans/:id", authMiddleware, (req, res) => {
+app.delete("/api/saving-plans/:id", authMiddleware, async (req, res) => {
+  // console.log("id", id);
+  const savingPlanId = req.params.id;
+  try {
+    const query = "DELETE FROM saving_plans WHERE id = ?;";
+    const values = [savingPlanId];
+
+    await pool.query(query, values);
+
+    res.status(200).json({ message: "Deleted" });
+  } catch (error) {
+    console.error("Failed to delete saving plan", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// update saving plan
+app.put("/api/saving-plans/:id", authMiddleware, async (req, res) => {
+  const savingPlanId = req.params.id;
+
   const {
     userId,
     name,
@@ -671,8 +576,6 @@ app.put("/api/saving-plans/:id", authMiddleware, (req, res) => {
     totalPeriods,
     amountPerPeriod,
   } = req.body;
-
-  const savingPlanId = req.params.id;
 
   const newStartDate = new Date(start_date);
   const newEndDate = new Date(end_date);
@@ -703,85 +606,47 @@ app.put("/api/saving-plans/:id", authMiddleware, (req, res) => {
   });
 });
 
-app.delete("/api/saving-plans/:id", authMiddleware, (req, res) => {
-  const savingPlanId = req.params.id;
-  // console.log("id", id);
-  const query = "DELETE FROM saving_plans WHERE id = ?;";
-  const values = [savingPlanId];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to delete saving plan", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
-    // console.log(results);
-    res.status(200).json({ message: "Deleted" });
-  });
-});
-
-app.get("/api/deposits", authMiddleware, (req, res) => {
-  const { id } = req.headers;
+app.get("/api/deposits", authMiddleware, async (req, res) => {
   // console.log(req.headers);
+  const { id } = req.headers;
 
-  const query = "SELECT * FROM deposits WHERE plan_id = ?;";
-  const values = [id];
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to get deposits", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-    // console.log("results", results);
+  try {
+    const query = "SELECT * FROM deposits WHERE plan_id = ?;";
+    const values = [id];
+
+    const [results] = await pool.query(query, values);
+
     res.status(200).json({ depositList: results });
-  });
+  } catch (error) {
+    console.error("Failed to get deposits", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.put("/api/deposits/:id", authMiddleware, (req, res) => {
-  const { id, amount, plan_id, editableAmount } = req.body;
+app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
+  const { id, amount, plan_id, editableAmount } = req.body;
 
-  // update deposit status and amount
   const finalAmount = editableAmount ? editableAmount : amount;
-  let query = "UPDATE deposits SET status = 'completed', amount = ? WHERE id = ?;";
-  let values = [finalAmount, id];
+  try {
+    // update deposit status and amount
+    let query = "UPDATE deposits SET status = 'completed', amount = ? WHERE id = ?;";
+    let values = [finalAmount, id];
+    await pool.query(query, values);
 
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to deposit", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-    // console.log(results);
-  });
-
-  // update saving plan completed_periods and deposited_amount
-  query =
-    "UPDATE saving_plans SET completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ? WHERE id = ?";
-  values = [finalAmount, plan_id];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error(
-        "Failed to update saving plan completed periods and deposited amount",
-        error
-      );
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-    // console.log(results);
+    // update saving plan completed_periods and deposited_amount
+    query =
+      "UPDATE saving_plans SET completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ? WHERE id = ?";
+    values = [finalAmount, plan_id];
+    await pool.query(query, values);
 
     if (!editableAmount) {
-      return res.status(200).json({ message: "Deposit confirmed!" });
-    }
-  });
-
-  if (editableAmount) {
-    // get saving plan details
-    query = "SELECT * FROM saving_plans WHERE id = ?;";
-    values = [plan_id];
-    pool.query(query, values, (error, results) => {
-      if (error) {
-        console.error("Failed to get saving plan", error);
-        return res.status(500).json({ error: "Internal Server Error" });
-      }
+      res.status(200).json({ message: "Deposit confirmed!" });
+    } else {
+      // get saving plan details
+      query = "SELECT * FROM saving_plans WHERE id = ?;";
+      values = [plan_id];
+      const [results] = await pool.query(query, values);
 
       // console.log("results", results);
       const plan = results[0];
@@ -793,22 +658,20 @@ app.put("/api/deposits/:id", authMiddleware, (req, res) => {
 
       query = "UPDATE deposits SET amount = ? WHERE plan_id = ? AND status = 'pending';";
       values = [newAmountPerPeriod, plan_id];
-      pool.query(query, values, (error, results) => {
-        if (error) {
-          console.error("Failed to update pending deposits", error);
-          return res.status(500).json({ error: "Internal Server Error" });
-        }
-        // console.log("results", results);
-        return res.status(200).json({ message: "Deposit confirmed!" });
-      });
-    });
+      await pool.query(query, values);
+      res.status(200).json({ message: "Deposit confirmed!" });
+    }
+  } catch (error) {
+    console.error("Failed to deposit", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-app.get("/api/account-books-summary/:userId", authMiddleware, (req, res) => {
+app.get("/api/account-books-summary/:userId", authMiddleware, async (req, res) => {
   const userId = req.params.userId;
 
-  const query = `
+  try {
+    const query = `
     SELECT 
       account_books.name AS account_book_name,
       SUM(CASE WHEN transactions.type = 'income' THEN transactions.amount ELSE 0 END) AS total_income,
@@ -819,23 +682,22 @@ app.get("/api/account-books-summary/:userId", authMiddleware, (req, res) => {
     GROUP BY account_books.id, account_books.name
     ORDER BY account_books.name;
   `;
+    const values = [userId];
 
-  const values = [userId];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to get account book summary", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
+    const [results] = await pool.query(query, values);
 
     res.status(200).json(results);
-  });
+  } catch (error) {
+    console.error("Failed to get account book summary", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.get("/api/monthly-summary/:userId", authMiddleware, (req, res) => {
+app.get("/api/monthly-summary/:userId", authMiddleware, async (req, res) => {
   const userId = req.params.userId;
 
-  const query = `
+  try {
+    const query = `
     SELECT 
       DATE_FORMAT(date, '%Y-%m') AS month,
       SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS total_income,
@@ -845,23 +707,20 @@ app.get("/api/monthly-summary/:userId", authMiddleware, (req, res) => {
     GROUP BY month
     ORDER BY month;
   `;
-
-  const values = [userId];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to get monthly summary", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
+    const values = [userId];
+    const [results] = await pool.query(query, values);
     res.status(200).json(results);
-  });
+  } catch (error) {
+    console.error("Failed to get monthly summary", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.get("/api/top-categories/:userId", authMiddleware, (req, res) => {
+app.get("/api/top-categories/:userId", authMiddleware, async (req, res) => {
   const userId = req.params.userId;
 
-  const query = `
+  try {
+    const query = `
     SELECT 
       category,
       SUM(amount) AS total
@@ -871,23 +730,22 @@ app.get("/api/top-categories/:userId", authMiddleware, (req, res) => {
     ORDER BY total DESC
     LIMIT 5;
   `;
+    const values = [userId];
 
-  const values = [userId];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to get top 5 categories", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
+    const [results] = await pool.query(query, values);
 
     res.status(200).json(results);
-  });
+  } catch (error) {
+    console.error("Failed to get top 5 categories", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.get("/api/category-ratio/:userId", authMiddleware, (req, res) => {
+app.get("/api/category-ratio/:userId", authMiddleware, async (req, res) => {
   const userId = req.params.userId;
 
-  const query = `
+  try {
+    const query = `
     SELECT 
       category,
       SUM(amount) AS total
@@ -896,17 +754,14 @@ app.get("/api/category-ratio/:userId", authMiddleware, (req, res) => {
     GROUP BY category
     ORDER BY total DESC;
   `;
+    const values = [userId];
 
-  const values = [userId];
-
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to get expense category ratio", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-
+    const [results] = await pool.query(query, values);
     res.status(200).json(results);
-  });
+  } catch (error) {
+    console.error("Failed to get expense category ratio", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 app.listen(6789, () => {
