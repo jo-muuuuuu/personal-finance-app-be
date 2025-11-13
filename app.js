@@ -580,30 +580,29 @@ app.put("/api/saving-plans/:id", authMiddleware, async (req, res) => {
   const newStartDate = new Date(start_date);
   const newEndDate = new Date(end_date);
 
-  const query =
-    "UPDATE saving_plans SET user_id = ?, name = ?, description = ?, start_date = ?, end_date = ?, amount = ?, period = ?, total_periods = ?, amount_per_period =? WHERE id = ?;";
-  const values = [
-    userId,
-    name,
-    description,
-    newStartDate,
-    newEndDate,
-    amount,
-    period,
-    totalPeriods,
-    amountPerPeriod,
-    savingPlanId,
-  ];
+  try {
+    let query =
+      "UPDATE saving_plans SET user_id = ?, name = ?, description = ?, start_date = ?, end_date = ?, amount = ?, period = ?, total_periods = ?, amount_per_period =? WHERE id = ?;";
+    let values = [
+      userId,
+      name,
+      description,
+      newStartDate,
+      newEndDate,
+      amount,
+      period,
+      totalPeriods,
+      amountPerPeriod,
+      savingPlanId,
+    ];
 
-  pool.query(query, values, (error, results) => {
-    if (error) {
-      console.error("Failed to update saving plan", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
+    await pool.query(query, values);
 
-    // console.log(result);
     res.status(200).json({ message: "Saving plan updated!" });
-  });
+  } catch (error) {
+    console.error("Failed to update saving plan", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 app.get("/api/deposits", authMiddleware, async (req, res) => {
@@ -619,7 +618,7 @@ app.get("/api/deposits", authMiddleware, async (req, res) => {
     res.status(200).json({ depositList: results });
   } catch (error) {
     console.error("Failed to get deposits", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -689,7 +688,7 @@ app.get("/api/account-books-summary/:userId", authMiddleware, async (req, res) =
     res.status(200).json(results);
   } catch (error) {
     console.error("Failed to get account book summary", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -712,7 +711,7 @@ app.get("/api/monthly-summary/:userId", authMiddleware, async (req, res) => {
     res.status(200).json(results);
   } catch (error) {
     console.error("Failed to get monthly summary", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -737,7 +736,7 @@ app.get("/api/top-categories/:userId", authMiddleware, async (req, res) => {
     res.status(200).json(results);
   } catch (error) {
     console.error("Failed to get top 5 categories", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -760,7 +759,7 @@ app.get("/api/category-ratio/:userId", authMiddleware, async (req, res) => {
     res.status(200).json(results);
   } catch (error) {
     console.error("Failed to get expense category ratio", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
