@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const multer = require("multer");
 const path = require("path");
+const dayjs = require("dayjs");
 
 const app = express();
 app.use(express.json());
@@ -429,6 +430,34 @@ app.put("/api/transactions/:id", authMiddleware, async (req, res) => {
   }
 });
 
+function calculateNewEndDate(end_date, period, periods) {
+  const start = dayjs(end_date);
+  let newEndDate;
+
+  switch (period) {
+    case "week":
+      newEndDate = start.add(periods, "week");
+      break;
+    case "fortnight":
+      newEndDate = start.add(periods * 2, "week");
+      break;
+    case "month":
+      newEndDate = start.add(periods, "month");
+      break;
+    case "quarter":
+      newEndDate = start.add(periods * 3, "month");
+      break;
+    case "year":
+      newEndDate = start.add(periods, "year");
+      break;
+    default:
+      newEndDate = start;
+  }
+
+  // console.log("Calculated new end date:", newEndDate.format("YYYY-MM-DD"));
+  return newEndDate;
+}
+
 function generateDepositDates(startDate, endDate, period, totalPeriods) {
   const depositDates = [];
   // console.log("received", startDate, endDate, period, totalPeriods);
@@ -438,38 +467,90 @@ function generateDepositDates(startDate, endDate, period, totalPeriods) {
     return depositDates;
   }
 
+  // 确保使用 dayjs 对象
+  const start = dayjs(startDate);
+  const end = dayjs(endDate);
+
+  if (!start.isValid() || !end.isValid()) {
+    console.warn("generateDepositDates: Invalid date parameters.");
+    return depositDates;
+  }
+
   for (let i = 0; i < totalPeriods; i++) {
-    const nextDate = new Date(startDate);
+    let nextDate;
 
     switch (period) {
       case "week":
-        nextDate.setDate(startDate.getDate() + i * 7);
+        nextDate = start.add(i * 7, "day");
         break;
       case "fortnight":
-        nextDate.setDate(startDate.getDate() + i * 14);
+        nextDate = start.add(i * 14, "day");
         break;
       case "month":
-        nextDate.setMonth(startDate.getMonth() + i);
+        nextDate = start.add(i, "month");
         break;
       case "quarter":
-        nextDate.setMonth(startDate.getMonth() + i * 3);
+        nextDate = start.add(i * 3, "month");
         break;
       case "year":
-        nextDate.setFullYear(startDate.getFullYear() + i);
+        nextDate = start.add(i, "year");
         break;
       default:
         console.warn(`Unsupported period type: ${period}`);
         return depositDates;
     }
 
-    if (nextDate > endDate) break;
+    // 如果计算出的日期超过结束日期，则停止
+    if (nextDate.isAfter(end)) break;
 
-    const formatted = nextDate.toISOString().split("T")[0];
+    const formatted = nextDate.format("YYYY-MM-DD");
     depositDates.push(formatted);
   }
 
   return depositDates;
 }
+
+// function generateDepositDates(startDate, endDate, period, totalPeriods) {
+//   const depositDates = [];
+//   // console.log("received", startDate, endDate, period, totalPeriods);
+
+//   if (!startDate || !endDate || !period || !totalPeriods) {
+//     console.warn("generateDepositDates: Missing required parameters.");
+//     return depositDates;
+//   }
+
+//   for (let i = 0; i < totalPeriods; i++) {
+//     const nextDate = new Date(startDate);
+
+//     switch (period) {
+//       case "week":
+//         nextDate.setDate(startDate.getDate() + i * 7);
+//         break;
+//       case "fortnight":
+//         nextDate.setDate(startDate.getDate() + i * 14);
+//         break;
+//       case "month":
+//         nextDate.setMonth(startDate.getMonth() + i);
+//         break;
+//       case "quarter":
+//         nextDate.setMonth(startDate.getMonth() + i * 3);
+//         break;
+//       case "year":
+//         nextDate.setFullYear(startDate.getFullYear() + i);
+//         break;
+//       default:
+//         console.warn(`Unsupported period type: ${period}`);
+//         return depositDates;
+//     }
+
+//     if (nextDate > endDate) break;
+
+//     const formatted = nextDate.toISOString().split("T")[0];
+//     depositDates.push(formatted);
+//   }
+
+//   return depositDates;
+// }
 
 app.post("/api/saving-plans", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
@@ -548,6 +629,7 @@ app.get("/api/saving-plans", authMiddleware, async (req, res) => {
 app.delete("/api/saving-plans/:id", authMiddleware, async (req, res) => {
   // console.log("id", id);
   const savingPlanId = req.params.id;
+
   try {
     const query = "DELETE FROM saving_plans WHERE id = ?;";
     const values = [savingPlanId];
@@ -563,39 +645,77 @@ app.delete("/api/saving-plans/:id", authMiddleware, async (req, res) => {
 
 // update saving plan
 app.put("/api/saving-plans/:id", authMiddleware, async (req, res) => {
+  // console.log(req.body);
   const savingPlanId = req.params.id;
-
   const {
-    userId,
     name,
     description,
-    start_date,
-    end_date,
-    amount,
-    period,
-    totalPeriods,
-    amountPerPeriod,
+    remaining_amount,
+    remaining_periods,
+    new_total_amount,
+    new_end_date,
+    userId,
   } = req.body;
 
-  const newStartDate = new Date(start_date);
-  const newEndDate = new Date(end_date);
+  const newEndDate = new Date(new_end_date);
 
   try {
-    let query =
-      "UPDATE saving_plans SET user_id = ?, name = ?, description = ?, start_date = ?, end_date = ?, amount = ?, period = ?, total_periods = ?, amount_per_period =? WHERE id = ?;";
-    let values = [
-      userId,
+    // get saving plan details
+    let query = "SELECT * FROM saving_plans WHERE id = ?;";
+    let values = [savingPlanId];
+    const [results] = await pool.query(query, values);
+
+    // console.log("results", results);
+    const plan = results[0];
+
+    const new_total_periods = plan.completed_periods + remaining_periods;
+    const new_amount_per_period = remaining_amount / remaining_periods;
+
+    const flagOne = new_total_amount === plan.amount;
+    const flagTwo = remaining_periods === plan.total_periods - plan.completed_periods;
+
+    if (!flagOne || !flagTwo) {
+      // delete future deposits
+      query = "DELETE FROM deposits WHERE plan_id = ? AND status = 'pending';";
+      values = [savingPlanId];
+      await pool.query(query, values);
+
+      // generate new deposits
+      const nextDepositDate = calculateNewEndDate(
+        plan.start_date,
+        plan.period,
+        plan.completed_periods
+      );
+
+      const depositDates = generateDepositDates(
+        nextDepositDate,
+        newEndDate,
+        plan.period,
+        remaining_periods
+      );
+
+      let depositList = [];
+      depositDates.forEach((date) => {
+        depositList.push([savingPlanId, userId, new_amount_per_period, date, "pending"]);
+      });
+
+      query = "INSERT INTO deposits (plan_id, user_id, amount, date, status) VALUES ?";
+      values = [depositList];
+      await pool.query(query, values);
+    }
+
+    // update saving plan
+    query =
+      "UPDATE saving_plans SET name = ?, description = ?, amount = ?, total_periods = ?, amount_per_period = ?, end_date = ? WHERE id = ?;";
+    values = [
       name,
       description,
-      newStartDate,
+      new_total_amount,
+      new_total_periods,
+      new_amount_per_period,
       newEndDate,
-      amount,
-      period,
-      totalPeriods,
-      amountPerPeriod,
       savingPlanId,
     ];
-
     await pool.query(query, values);
 
     res.status(200).json({ message: "Saving plan updated!" });
@@ -603,6 +723,45 @@ app.put("/api/saving-plans/:id", authMiddleware, async (req, res) => {
     console.error("Failed to update saving plan", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
+
+  // const {
+  //   userId,
+  //   name,
+  //   description,
+  //   start_date,
+  //   end_date,
+  //   amount,
+  //   period,
+  //   totalPeriods,
+  //   amountPerPeriod,
+  // } = req.body;
+
+  // const newStartDate = new Date(start_date);
+  // const newEndDate = new Date(new_end_date);
+
+  // try {
+  //   let query =
+  //     "UPDATE saving_plans SET user_id = ?, name = ?, description = ?, start_date = ?, end_date = ?, amount = ?, period = ?, total_periods = ?, amount_per_period =? WHERE id = ?;";
+  //   let values = [
+  //     userId,
+  //     name,
+  //     description,
+  //     newStartDate,
+  //     newEndDate,
+  //     amount,
+  //     period,
+  //     totalPeriods,
+  //     amountPerPeriod,
+  //     savingPlanId,
+  //   ];
+
+  //   await pool.query(query, values);
+
+  //   res.status(200).json({ message: "Saving plan updated!" });
+  // } catch (error) {
+  //   console.error("Failed to update saving plan", error);
+  //   res.status(500).json({ error: "Internal Server Error" });
+  // }
 });
 
 app.get("/api/deposits", authMiddleware, async (req, res) => {
@@ -626,38 +785,75 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
   const { id, amount, plan_id, editableAmount } = req.body;
 
-  const finalAmount = editableAmount ? editableAmount : amount;
+  const finalAmount = editableAmount ? +editableAmount : +amount;
   try {
     // update deposit status and amount
     let query = "UPDATE deposits SET status = 'completed', amount = ? WHERE id = ?;";
     let values = [finalAmount, id];
     await pool.query(query, values);
 
-    // update saving plan completed_periods and deposited_amount
-    query =
-      "UPDATE saving_plans SET completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ? WHERE id = ?";
-    values = [finalAmount, plan_id];
-    await pool.query(query, values);
+    // get saving plan details
+    query = "SELECT * FROM saving_plans WHERE id = ?;";
+    values = [plan_id];
+    const [results] = await pool.query(query, values);
 
-    if (!editableAmount) {
-      res.status(200).json({ message: "Deposit confirmed!" });
-    } else {
-      // get saving plan details
-      query = "SELECT * FROM saving_plans WHERE id = ?;";
-      values = [plan_id];
-      const [results] = await pool.query(query, values);
+    // console.log("results", results);
+    const plan = results[0];
 
-      // console.log("results", results);
-      const plan = results[0];
+    // Check remaining amount and periods
+    const remainingAmount = +plan.amount - +plan.deposited_amount;
+    const remainingPeriods = +plan.total_periods - +plan.completed_periods;
 
-      // update deposited_amount and calculate new deposited_amount for all pending saving plans
-      const remainingAmount = plan.amount - plan.deposited_amount;
-      const remainingPeriods = plan.total_periods - plan.completed_periods;
-      const newAmountPerPeriod = remainingAmount / remainingPeriods;
+    // Check if saving plan is completed
+    if (finalAmount >= remainingAmount) {
+      if (remainingPeriods > 1) {
+        // Delete future pending deposits
+        query = "DELETE FROM deposits WHERE plan_id = ? AND status = 'pending';";
+        values = [plan_id];
+        await pool.query(query, values);
+      }
+      query =
+        "UPDATE saving_plans SET amount = ?, completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ?, status = 'completed' WHERE id = ?";
+      values = [+plan.amount + finalAmount - remainingAmount, finalAmount, plan_id];
 
-      query = "UPDATE deposits SET amount = ? WHERE plan_id = ? AND status = 'pending';";
-      values = [newAmountPerPeriod, plan_id];
       await pool.query(query, values);
+
+      return res
+        .status(200)
+        .json({ message: "Deposit confirmed! Saving plan completed." });
+    } else {
+      if (remainingPeriods === 1) {
+        // Saving plan uncompleted but last period, generate one more deposit
+        const newEndDate = calculateNewEndDate(plan.end_date, plan.period, 1);
+
+        query =
+          "INSERT INTO deposits (plan_id, user_id, amount, date, status) VALUES (?, ?, ?, ?, ?);";
+        values = [
+          plan_id,
+          plan.user_id,
+          +plan.amount - (+plan.deposited_amount + finalAmount),
+          newEndDate,
+          "pending",
+        ];
+        await pool.query(query, values);
+      } else {
+        // Saving Plan uncompleted, update future pending deposits amount
+        const newAmountPerPeriod =
+          (+plan.amount - (+plan.deposited_amount + finalAmount)) /
+          (remainingPeriods - 1);
+
+        query =
+          "UPDATE deposits SET amount = ? WHERE plan_id = ? AND status = 'pending';";
+        values = [newAmountPerPeriod, plan_id];
+        await pool.query(query, values);
+      }
+
+      // update saving plan completed_periods and deposited_amount
+      query =
+        "UPDATE saving_plans SET completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ? WHERE id = ?";
+      values = [finalAmount, plan_id];
+      await pool.query(query, values);
+
       res.status(200).json({ message: "Deposit confirmed!" });
     }
   } catch (error) {
