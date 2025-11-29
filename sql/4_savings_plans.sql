@@ -1,6 +1,6 @@
 USE personal_finance_app;
 
-CREATE TABLE saving_plans (
+CREATE TABLE savings_plans (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
@@ -17,8 +17,8 @@ CREATE TABLE saving_plans (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-ALTER TABLE saving_plans ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE saving_plans ADD COLUMN deposited_amount DECIMAL(10,2) DEFAULT 0.00 AFTER amount_per_period;
+ALTER TABLE savings_plans ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE savings_plans ADD COLUMN deposited_amount DECIMAL(10,2) DEFAULT 0.00 AFTER amount_per_period;
 
 
-SELECT * FROM saving_plans;
+SELECT * FROM savings_plans;
