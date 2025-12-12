@@ -199,7 +199,7 @@ app.post("/api/reset-password", async (req, res) => {
   }
 });
 
-app.post("/api/profile-reset-password", async (req, res) => {
+app.post("/api/profile-reset-password", authMiddleware, async (req, res) => {
   const { token, oldPassword, newPassword } = req.body;
 
   try {

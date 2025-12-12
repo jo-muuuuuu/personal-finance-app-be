@@ -1,4 +1,4 @@
-USE personal_finance_app;
+USE penny_wave_db;
 
 CREATE TABLE savings_plans (
     id INT AUTO_INCREMENT PRIMARY KEY,
