@@ -727,12 +727,11 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
 
 app.get("/api/deposits", authMiddleware, async (req, res) => {
   // console.log(req.headers);
-  const { id } = req.headers;
+  const { savingsplanid: savingsPlanId } = req.headers;
 
   try {
     const query = "SELECT * FROM deposits WHERE plan_id = ?;";
-    const values = [id];
-
+    const values = [savingsPlanId];
     const [results] = await pool.query(query, values);
 
     res.status(200).json({ depositList: results });
@@ -744,19 +743,24 @@ app.get("/api/deposits", authMiddleware, async (req, res) => {
 
 app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
-  const { id, deposited_amount, plan_id, editableAmount } = req.body;
+  const {
+    id: depositId,
+    deposited_amount,
+    plan_id: savingsPlanId,
+    editableAmount,
+  } = req.body;
 
   const finalAmount = editableAmount ? +editableAmount : +deposited_amount;
   try {
     // update deposit status and amount
     let query =
       "UPDATE deposits SET status = 'completed', deposited_amount = ? WHERE id = ?;";
-    let values = [finalAmount, id];
+    let values = [finalAmount, depositId];
     await pool.query(query, values);
 
     // get savings plan details
     query = "SELECT * FROM savings_plans WHERE id = ?;";
-    values = [plan_id];
+    values = [savingsPlanId];
     const [results] = await pool.query(query, values);
 
     // console.log("results", results);
@@ -771,13 +775,13 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
       if (remainingPeriods > 1) {
         // Delete future pending deposits
         query = "DELETE FROM deposits WHERE plan_id = ? AND status = 'pending';";
-        values = [plan_id];
+        values = [savingsPlanId];
         await pool.query(query, values);
       }
 
       query =
         "UPDATE savings_plans SET amount = ?, completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ?, status = 'completed' WHERE id = ?";
-      values = [+plan.amount + finalAmount - remainingAmount, finalAmount, plan_id];
+      values = [+plan.amount + finalAmount - remainingAmount, finalAmount, savingsPlanId];
 
       await pool.query(query, values);
 
@@ -792,7 +796,7 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
         query =
           "INSERT INTO deposits (plan_id, user_id, scheduled_amount, deposited_amount, date, status) VALUES (?, ?, ?, ?, ?);";
         values = [
-          plan_id,
+          savingsPlanId,
           plan.user_id,
           +plan.amount - (+plan.deposited_amount + finalAmount),
           +plan.amount - (+plan.deposited_amount + finalAmount),
@@ -808,14 +812,14 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
 
         query =
           "UPDATE deposits SET deposited_amount = ? WHERE plan_id = ? AND status = 'pending';";
-        values = [newAmountPerPeriod, plan_id];
+        values = [newAmountPerPeriod, savingsPlanId];
         await pool.query(query, values);
       }
 
       // update savings plan completed_periods and deposited_amount
       query =
         "UPDATE savings_plans SET completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ? WHERE id = ?";
-      values = [finalAmount, plan_id];
+      values = [finalAmount, savingsPlanId];
       await pool.query(query, values);
 
       res.status(200).json({ message: "Deposit confirmed!" });
@@ -828,27 +832,27 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
 
 app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
   // console.log(req.body);
-  const { id, plan_id, deposited_amount } = req.body;
+  const { id: depositId, plan_id: savingsPlanId, deposited_amount } = req.body;
 
   try {
     let query = "SELECT * FROM deposits WHERE id = ?";
-    let values = [id];
+    let values = [depositId];
     const [results] = await pool.query(query, values);
     const deposit = results[0];
 
     const { scheduled_amount } = deposit;
 
     query = "UPDATE deposits SET deposited_amount = ?, status = 'pending' WHERE id = ?;";
-    values = [scheduled_amount, id];
+    values = [scheduled_amount, depositId];
     await pool.query(query, values);
 
     query =
       "UPDATE savings_plans SET completed_periods = completed_periods - 1, deposited_amount = deposited_amount - ?, status = 'active' WHERE id = ?";
-    values = [deposited_amount, plan_id];
+    values = [deposited_amount, savingsPlanId];
     await pool.query(query, values);
 
     query = "SELECT * FROM savings_plans WHERE id = ?";
-    values = [plan_id];
+    values = [savingsPlanId];
     const [plans] = await pool.query(query, values);
     // console.log("plans", plans);
     const plan = plans[0];
@@ -859,7 +863,7 @@ app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
 
     query =
       "UPDATE deposits SET deposited_amount = ? WHERE plan_id = ? AND status = 'pending';";
-    values = [newAmount, plan_id];
+    values = [newAmount, savingsPlanId];
     await pool.query(query, values);
 
     res.status(200).json({ message: "Deposit Reset!" });
