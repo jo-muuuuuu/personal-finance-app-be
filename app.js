@@ -95,7 +95,7 @@ app.post("/api/login", async (req, res) => {
     if (results.length === 0) {
       return res.status(401).json({ error: "User does not exist" });
     }
-    console.log(results);
+    // console.log(results);
     const {
       id: userId,
       nickname,
@@ -214,11 +214,12 @@ app.post("/api/reset-password", async (req, res) => {
 });
 
 app.post("/api/profile-reset-password", authMiddleware, async (req, res) => {
-  const { token, oldPassword, newPassword } = req.body;
+  const { email } = req.user;
+  const { oldPassword, newPassword } = req.body;
 
   try {
-    const decoded = jwt.verify(token, jwtSecretKey);
-    const email = decoded.username;
+    // const decoded = jwt.verify(token, jwtSecretKey);
+    // const email = decoded.username;
 
     let query = "SELECT password FROM users WHERE email = ?;";
     let values = [email];
@@ -260,7 +261,7 @@ app.post(
   authMiddleware,
   upload.single("image"),
   async (req, res) => {
-    const { email } = req.headers;
+    const { email } = req.user;
     const avatarPath = `/uploads/${req.file.filename}`;
 
     try {
