@@ -37,6 +37,12 @@ const authMiddleware = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, jwtSecretKey);
+    // console.log("decoded", decoded);
+
+    req.user = {
+      userId: decoded.userId,
+      email: decoded.email,
+    };
 
     next();
   } catch (error) {
@@ -79,27 +85,34 @@ app.post("/api/register", async (req, res) => {
 
 app.post("/api/login", async (req, res) => {
   // console.log(req.body);
-  const { username, password } = req.body;
+  const { email, password } = req.body;
 
   try {
     const query = "SELECT id, nickname, password, avatar_url FROM users WHERE email = ?;";
-    const values = [username];
+    const values = [email];
     const [results] = await pool.query(query, values); // return [rows, fields]
 
     if (results.length === 0) {
       return res.status(401).json({ error: "User does not exist" });
     }
-
-    const { id, nickname, password: hashedPassword, avatar_url: avatarURL } = results[0];
+    console.log(results);
+    const {
+      id: userId,
+      nickname,
+      password: hashedPassword,
+      avatar_url: avatarURL,
+    } = results[0];
 
     const isMatch = await bcrypt.compare(password, hashedPassword);
     if (!isMatch) {
       return res.status(401).json({ error: "Wrong email or password!" });
     }
 
-    const token = jwt.sign({ username }, jwtSecretKey, { expiresIn: "1h" });
+    const token = jwt.sign({ userId, email }, jwtSecretKey, {
+      expiresIn: "1h",
+    });
 
-    res.status(200).json({ id, nickname, username, avatarURL, token });
+    res.status(200).json({ userId, nickname, email, avatarURL, token });
   } catch (error) {
     console.error("Failed to login:", error);
     res.status(500).json({ error: "Internal Server Error" });
@@ -130,7 +143,7 @@ app.post("/api/forgot-password", async (req, res) => {
     const mailOptions = {
       from: process.env.EMAIL_USERNAME,
       to: email,
-      subject: "Password Reset",
+      subject: "Penny Wave - Password Reset",
       text: `Click the link to reset your password: ${process.env.PUBLIC_IP}/reset-password/${token}`,
     };
 
@@ -169,11 +182,12 @@ app.get("/api/validate-token", async (req, res) => {
 
 app.post("/api/reset-password", async (req, res) => {
   // console.log("req.body", req.body);
-  const { token, newPassword } = req.body;
+  const { email } = req.user;
+  const { newPassword } = req.body;
 
   try {
-    const decoded = jwt.verify(token, jwtSecretKey);
-    const email = decoded.email;
+    // const decoded = jwt.verify(token, jwtSecretKey);
+    // const email = decoded.email;
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
