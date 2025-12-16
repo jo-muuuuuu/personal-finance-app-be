@@ -525,9 +525,8 @@ function generateDepositDates(startDate, endDate, period, totalPeriods) {
 
 app.post("/api/savings-plans", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
-
+  const { userId } = req.user;
   const {
-    userId,
     name,
     description,
     start_date,
@@ -590,13 +589,12 @@ app.post("/api/savings-plans", authMiddleware, async (req, res) => {
 });
 
 app.get("/api/savings-plans", authMiddleware, async (req, res) => {
-  // console.log("id", id);
-  const { id } = req.headers;
+  const { userId } = req.user;
 
   try {
     const query =
       "SELECT * FROM savings_plans WHERE user_id = ? ORDER BY created_at DESC;";
-    const values = [id];
+    const values = [userId];
     const [results] = await pool.query(query, values);
     res.status(200).json({ savingsPlanList: results });
   } catch (error) {
@@ -641,6 +639,7 @@ app.delete("/api/savings-plans/:id", authMiddleware, async (req, res) => {
 app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
   // console.log(req.body);
   const savingsPlanId = req.params.id;
+  const { userId } = req.user;
   const {
     name,
     description,
@@ -648,7 +647,6 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
     remaining_periods,
     new_total_amount,
     new_end_date,
-    userId,
   } = req.body;
 
   const newEndDate = new Date(new_end_date);
