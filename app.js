@@ -37,6 +37,12 @@ const authMiddleware = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, jwtSecretKey);
+    // console.log("decoded", decoded);
+
+    req.user = {
+      userId: decoded.userId,
+      email: decoded.email,
+    };
 
     next();
   } catch (error) {
@@ -79,27 +85,34 @@ app.post("/api/register", async (req, res) => {
 
 app.post("/api/login", async (req, res) => {
   // console.log(req.body);
-  const { username, password } = req.body;
+  const { email, password } = req.body;
 
   try {
     const query = "SELECT id, nickname, password, avatar_url FROM users WHERE email = ?;";
-    const values = [username];
+    const values = [email];
     const [results] = await pool.query(query, values); // return [rows, fields]
 
     if (results.length === 0) {
       return res.status(401).json({ error: "User does not exist" });
     }
-
-    const { id, nickname, password: hashedPassword, avatar_url: avatarURL } = results[0];
+    // console.log(results);
+    const {
+      id: userId,
+      nickname,
+      password: hashedPassword,
+      avatar_url: avatarURL,
+    } = results[0];
 
     const isMatch = await bcrypt.compare(password, hashedPassword);
     if (!isMatch) {
       return res.status(401).json({ error: "Wrong email or password!" });
     }
 
-    const token = jwt.sign({ username }, jwtSecretKey, { expiresIn: "1h" });
+    const token = jwt.sign({ userId, email }, jwtSecretKey, {
+      expiresIn: "1h",
+    });
 
-    res.status(200).json({ id, nickname, username, avatarURL, token });
+    res.status(200).json({ userId, nickname, email, avatarURL, token });
   } catch (error) {
     console.error("Failed to login:", error);
     res.status(500).json({ error: "Internal Server Error" });
@@ -130,7 +143,7 @@ app.post("/api/forgot-password", async (req, res) => {
     const mailOptions = {
       from: process.env.EMAIL_USERNAME,
       to: email,
-      subject: "Password Reset",
+      subject: "Penny Wave - Password Reset",
       text: `Click the link to reset your password: ${process.env.PUBLIC_IP}/reset-password/${token}`,
     };
 
@@ -169,11 +182,12 @@ app.get("/api/validate-token", async (req, res) => {
 
 app.post("/api/reset-password", async (req, res) => {
   // console.log("req.body", req.body);
-  const { token, newPassword } = req.body;
+  const { email } = req.user;
+  const { newPassword } = req.body;
 
   try {
-    const decoded = jwt.verify(token, jwtSecretKey);
-    const email = decoded.email;
+    // const decoded = jwt.verify(token, jwtSecretKey);
+    // const email = decoded.email;
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
@@ -200,11 +214,12 @@ app.post("/api/reset-password", async (req, res) => {
 });
 
 app.post("/api/profile-reset-password", authMiddleware, async (req, res) => {
-  const { token, oldPassword, newPassword } = req.body;
+  const { email } = req.user;
+  const { oldPassword, newPassword } = req.body;
 
   try {
-    const decoded = jwt.verify(token, jwtSecretKey);
-    const email = decoded.username;
+    // const decoded = jwt.verify(token, jwtSecretKey);
+    // const email = decoded.username;
 
     let query = "SELECT password FROM users WHERE email = ?;";
     let values = [email];
@@ -246,7 +261,7 @@ app.post(
   authMiddleware,
   upload.single("image"),
   async (req, res) => {
-    const { email } = req.headers;
+    const { email } = req.user;
     const avatarPath = `/uploads/${req.file.filename}`;
 
     try {
@@ -266,7 +281,8 @@ app.post(
 );
 
 app.post("/api/account-books", authMiddleware, async (req, res) => {
-  const { userId, name, tag, description } = req.body;
+  const { userId } = req.user;
+  const { name, tag, description } = req.body;
 
   try {
     const query =
@@ -282,7 +298,8 @@ app.post("/api/account-books", authMiddleware, async (req, res) => {
 
 app.put("/api/account-books/:id", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
-  const { userId, name, tag, description } = req.body;
+  const { userId } = req.user;
+  const { name, tag, description } = req.body;
   const accountBookId = req.params.id;
 
   try {
@@ -298,13 +315,12 @@ app.put("/api/account-books/:id", authMiddleware, async (req, res) => {
 });
 
 app.get("/api/account-books", authMiddleware, async (req, res) => {
-  // console.log("id", id);
-  const { id } = req.headers;
+  const { userId } = req.user;
 
   try {
     const query =
       "SELECT * FROM account_books WHERE user_id = ? ORDER BY created_at DESC;";
-    const values = [id];
+    const values = [userId];
     const [results] = await pool.query(query, values);
     res.status(200).json({ accountBookList: results });
   } catch (error) {
@@ -314,7 +330,6 @@ app.get("/api/account-books", authMiddleware, async (req, res) => {
 });
 
 app.delete("/api/account-books/:id", authMiddleware, async (req, res) => {
-  // console.log("id", id);
   const accountBookId = req.params.id;
 
   try {
@@ -329,7 +344,8 @@ app.delete("/api/account-books/:id", authMiddleware, async (req, res) => {
 });
 
 app.post("/api/transactions", authMiddleware, async (req, res) => {
-  const { userId, amount, date, type, description, select, category } = req.body;
+  const { userId } = req.user;
+  const { amount, date, type, description, select, category } = req.body;
 
   const newDate = new Date(date);
   const account_book_id = select.key;
@@ -359,13 +375,12 @@ app.post("/api/transactions", authMiddleware, async (req, res) => {
 });
 
 app.get("/api/transactions", authMiddleware, async (req, res) => {
-  // console.log("id", id);
-  const { id } = req.headers;
+  const { userId } = req.user;
 
   try {
     const query =
       "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC;";
-    const values = [id];
+    const values = [userId];
     const [results] = await pool.query(query, values);
     res.status(200).json({ transactionList: results });
   } catch (error) {
@@ -391,8 +406,8 @@ app.delete("/api/transactions/:id", authMiddleware, async (req, res) => {
 
 app.put("/api/transactions/:id", authMiddleware, async (req, res) => {
   const transactionId = req.params.id;
-
-  const { userId, amount, date, type, description, select, category } = req.body;
+  const { userId } = req.user;
+  const { amount, date, type, description, select, category } = req.body;
 
   const newDate = new Date(date);
   const account_book_id = select.key;
@@ -510,9 +525,8 @@ function generateDepositDates(startDate, endDate, period, totalPeriods) {
 
 app.post("/api/savings-plans", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
-
+  const { userId } = req.user;
   const {
-    userId,
     name,
     description,
     start_date,
@@ -575,13 +589,12 @@ app.post("/api/savings-plans", authMiddleware, async (req, res) => {
 });
 
 app.get("/api/savings-plans", authMiddleware, async (req, res) => {
-  // console.log("id", id);
-  const { id } = req.headers;
+  const { userId } = req.user;
 
   try {
     const query =
       "SELECT * FROM savings_plans WHERE user_id = ? ORDER BY created_at DESC;";
-    const values = [id];
+    const values = [userId];
     const [results] = await pool.query(query, values);
     res.status(200).json({ savingsPlanList: results });
   } catch (error) {
@@ -626,6 +639,7 @@ app.delete("/api/savings-plans/:id", authMiddleware, async (req, res) => {
 app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
   // console.log(req.body);
   const savingsPlanId = req.params.id;
+  const { userId } = req.user;
   const {
     name,
     description,
@@ -633,7 +647,6 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
     remaining_periods,
     new_total_amount,
     new_end_date,
-    userId,
   } = req.body;
 
   const newEndDate = new Date(new_end_date);
@@ -714,12 +727,11 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
 
 app.get("/api/deposits", authMiddleware, async (req, res) => {
   // console.log(req.headers);
-  const { id } = req.headers;
+  const { savingsplanid: savingsPlanId } = req.headers;
 
   try {
     const query = "SELECT * FROM deposits WHERE plan_id = ?;";
-    const values = [id];
-
+    const values = [savingsPlanId];
     const [results] = await pool.query(query, values);
 
     res.status(200).json({ depositList: results });
@@ -731,19 +743,24 @@ app.get("/api/deposits", authMiddleware, async (req, res) => {
 
 app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
-  const { id, deposited_amount, plan_id, editableAmount } = req.body;
+  const {
+    id: depositId,
+    deposited_amount,
+    plan_id: savingsPlanId,
+    editableAmount,
+  } = req.body;
 
   const finalAmount = editableAmount ? +editableAmount : +deposited_amount;
   try {
     // update deposit status and amount
     let query =
       "UPDATE deposits SET status = 'completed', deposited_amount = ? WHERE id = ?;";
-    let values = [finalAmount, id];
+    let values = [finalAmount, depositId];
     await pool.query(query, values);
 
     // get savings plan details
     query = "SELECT * FROM savings_plans WHERE id = ?;";
-    values = [plan_id];
+    values = [savingsPlanId];
     const [results] = await pool.query(query, values);
 
     // console.log("results", results);
@@ -758,13 +775,13 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
       if (remainingPeriods > 1) {
         // Delete future pending deposits
         query = "DELETE FROM deposits WHERE plan_id = ? AND status = 'pending';";
-        values = [plan_id];
+        values = [savingsPlanId];
         await pool.query(query, values);
       }
 
       query =
         "UPDATE savings_plans SET amount = ?, completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ?, status = 'completed' WHERE id = ?";
-      values = [+plan.amount + finalAmount - remainingAmount, finalAmount, plan_id];
+      values = [+plan.amount + finalAmount - remainingAmount, finalAmount, savingsPlanId];
 
       await pool.query(query, values);
 
@@ -779,7 +796,7 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
         query =
           "INSERT INTO deposits (plan_id, user_id, scheduled_amount, deposited_amount, date, status) VALUES (?, ?, ?, ?, ?);";
         values = [
-          plan_id,
+          savingsPlanId,
           plan.user_id,
           +plan.amount - (+plan.deposited_amount + finalAmount),
           +plan.amount - (+plan.deposited_amount + finalAmount),
@@ -795,14 +812,14 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
 
         query =
           "UPDATE deposits SET deposited_amount = ? WHERE plan_id = ? AND status = 'pending';";
-        values = [newAmountPerPeriod, plan_id];
+        values = [newAmountPerPeriod, savingsPlanId];
         await pool.query(query, values);
       }
 
       // update savings plan completed_periods and deposited_amount
       query =
         "UPDATE savings_plans SET completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ? WHERE id = ?";
-      values = [finalAmount, plan_id];
+      values = [finalAmount, savingsPlanId];
       await pool.query(query, values);
 
       res.status(200).json({ message: "Deposit confirmed!" });
@@ -815,27 +832,27 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
 
 app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
   // console.log(req.body);
-  const { id, plan_id, deposited_amount } = req.body;
+  const { id: depositId, plan_id: savingsPlanId, deposited_amount } = req.body;
 
   try {
     let query = "SELECT * FROM deposits WHERE id = ?";
-    let values = [id];
+    let values = [depositId];
     const [results] = await pool.query(query, values);
     const deposit = results[0];
 
     const { scheduled_amount } = deposit;
 
     query = "UPDATE deposits SET deposited_amount = ?, status = 'pending' WHERE id = ?;";
-    values = [scheduled_amount, id];
+    values = [scheduled_amount, depositId];
     await pool.query(query, values);
 
     query =
       "UPDATE savings_plans SET completed_periods = completed_periods - 1, deposited_amount = deposited_amount - ?, status = 'active' WHERE id = ?";
-    values = [deposited_amount, plan_id];
+    values = [deposited_amount, savingsPlanId];
     await pool.query(query, values);
 
     query = "SELECT * FROM savings_plans WHERE id = ?";
-    values = [plan_id];
+    values = [savingsPlanId];
     const [plans] = await pool.query(query, values);
     // console.log("plans", plans);
     const plan = plans[0];
@@ -846,7 +863,7 @@ app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
 
     query =
       "UPDATE deposits SET deposited_amount = ? WHERE plan_id = ? AND status = 'pending';";
-    values = [newAmount, plan_id];
+    values = [newAmount, savingsPlanId];
     await pool.query(query, values);
 
     res.status(200).json({ message: "Deposit Reset!" });
@@ -856,8 +873,8 @@ app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
   }
 });
 
-app.get("/api/account-books-summary/:userId", authMiddleware, async (req, res) => {
-  const userId = req.params.userId;
+app.get("/api/account-books-summary", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
 
   try {
     const query = `
@@ -882,8 +899,8 @@ app.get("/api/account-books-summary/:userId", authMiddleware, async (req, res) =
   }
 });
 
-app.get("/api/monthly-summary/:userId", authMiddleware, async (req, res) => {
-  const userId = req.params.userId;
+app.get("/api/monthly-summary", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
 
   try {
     const query = `
@@ -905,8 +922,8 @@ app.get("/api/monthly-summary/:userId", authMiddleware, async (req, res) => {
   }
 });
 
-app.get("/api/top-categories/:userId", authMiddleware, async (req, res) => {
-  const userId = req.params.userId;
+app.get("/api/top-categories", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
 
   try {
     const query = `
@@ -930,8 +947,8 @@ app.get("/api/top-categories/:userId", authMiddleware, async (req, res) => {
   }
 });
 
-app.get("/api/category-ratio/:userId", authMiddleware, async (req, res) => {
-  const userId = req.params.userId;
+app.get("/api/category-ratio", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
 
   try {
     const query = `
