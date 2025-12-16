@@ -281,7 +281,8 @@ app.post(
 );
 
 app.post("/api/account-books", authMiddleware, async (req, res) => {
-  const { userId, name, tag, description } = req.body;
+  const { userId } = req.user;
+  const { name, tag, description } = req.body;
 
   try {
     const query =
@@ -297,7 +298,8 @@ app.post("/api/account-books", authMiddleware, async (req, res) => {
 
 app.put("/api/account-books/:id", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
-  const { userId, name, tag, description } = req.body;
+  const { userId } = req.user;
+  const { name, tag, description } = req.body;
   const accountBookId = req.params.id;
 
   try {
@@ -313,13 +315,12 @@ app.put("/api/account-books/:id", authMiddleware, async (req, res) => {
 });
 
 app.get("/api/account-books", authMiddleware, async (req, res) => {
-  // console.log("id", id);
-  const { id } = req.headers;
+  const { userId } = req.user;
 
   try {
     const query =
       "SELECT * FROM account_books WHERE user_id = ? ORDER BY created_at DESC;";
-    const values = [id];
+    const values = [userId];
     const [results] = await pool.query(query, values);
     res.status(200).json({ accountBookList: results });
   } catch (error) {
@@ -329,7 +330,6 @@ app.get("/api/account-books", authMiddleware, async (req, res) => {
 });
 
 app.delete("/api/account-books/:id", authMiddleware, async (req, res) => {
-  // console.log("id", id);
   const accountBookId = req.params.id;
 
   try {
