@@ -344,7 +344,8 @@ app.delete("/api/account-books/:id", authMiddleware, async (req, res) => {
 });
 
 app.post("/api/transactions", authMiddleware, async (req, res) => {
-  const { userId, amount, date, type, description, select, category } = req.body;
+  const { userId } = req.user;
+  const { amount, date, type, description, select, category } = req.body;
 
   const newDate = new Date(date);
   const account_book_id = select.key;
@@ -374,13 +375,12 @@ app.post("/api/transactions", authMiddleware, async (req, res) => {
 });
 
 app.get("/api/transactions", authMiddleware, async (req, res) => {
-  // console.log("id", id);
-  const { id } = req.headers;
+  const { userId } = req.user;
 
   try {
     const query =
       "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC;";
-    const values = [id];
+    const values = [userId];
     const [results] = await pool.query(query, values);
     res.status(200).json({ transactionList: results });
   } catch (error) {
@@ -406,8 +406,8 @@ app.delete("/api/transactions/:id", authMiddleware, async (req, res) => {
 
 app.put("/api/transactions/:id", authMiddleware, async (req, res) => {
   const transactionId = req.params.id;
-
-  const { userId, amount, date, type, description, select, category } = req.body;
+  const { userId } = req.user;
+  const { amount, date, type, description, select, category } = req.body;
 
   const newDate = new Date(date);
   const account_book_id = select.key;
