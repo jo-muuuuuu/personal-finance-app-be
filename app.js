@@ -873,8 +873,8 @@ app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
   }
 });
 
-app.get("/api/account-books-summary/:userId", authMiddleware, async (req, res) => {
-  const userId = req.params.userId;
+app.get("/api/account-books-summary", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
 
   try {
     const query = `
@@ -899,8 +899,8 @@ app.get("/api/account-books-summary/:userId", authMiddleware, async (req, res) =
   }
 });
 
-app.get("/api/monthly-summary/:userId", authMiddleware, async (req, res) => {
-  const userId = req.params.userId;
+app.get("/api/monthly-summary", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
 
   try {
     const query = `
@@ -922,8 +922,8 @@ app.get("/api/monthly-summary/:userId", authMiddleware, async (req, res) => {
   }
 });
 
-app.get("/api/top-categories/:userId", authMiddleware, async (req, res) => {
-  const userId = req.params.userId;
+app.get("/api/top-categories", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
 
   try {
     const query = `
@@ -947,8 +947,8 @@ app.get("/api/top-categories/:userId", authMiddleware, async (req, res) => {
   }
 });
 
-app.get("/api/category-ratio/:userId", authMiddleware, async (req, res) => {
-  const userId = req.params.userId;
+app.get("/api/category-ratio", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
 
   try {
     const query = `
