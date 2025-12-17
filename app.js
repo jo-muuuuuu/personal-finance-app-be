@@ -182,12 +182,11 @@ app.get("/api/validate-token", async (req, res) => {
 
 app.post("/api/reset-password", async (req, res) => {
   // console.log("req.body", req.body);
-  const { email } = req.user;
-  const { newPassword } = req.body;
+  const { token, newPassword } = req.body;
 
   try {
-    // const decoded = jwt.verify(token, jwtSecretKey);
-    // const email = decoded.email;
+    const decoded = jwt.verify(token, jwtSecretKey);
+    const email = decoded.email;
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
@@ -470,7 +469,7 @@ function calculateNewEndDate(end_date, period, periods) {
   }
 
   // console.log("Calculated new end date:", newEndDate.format("YYYY-MM-DD"));
-  return newEndDate;
+  return newEndDate.format("YYYY-MM-DD");
 }
 
 function generateDepositDates(startDate, endDate, period, totalPeriods) {
@@ -603,20 +602,23 @@ app.get("/api/savings-plans", authMiddleware, async (req, res) => {
   }
 });
 
-// app.get("/api/savings-plans/:id", authMiddleware, async (req, res) => {
-//   const savingsPlanId = req.params.id;
-//   // console.log("id", savingsPlanId);
+app.get("/api/savings-plans/:id", authMiddleware, async (req, res) => {
+  const savingsPlanId = req.params.id;
+  // console.log("id", savingsPlanId);
 
-//   try {
-//     const query = "SELECT * FROM savings_plans WHERE id = ?;";
-//     const values = [savingsPlanId];
-//     const [results] = await pool.query(query, values);
-//     res.status(200).json({ savingsPlan: results[0] });
-//   } catch (error) {
-//     console.error("Failed to get savings plans", error);
-//     return res.status(500).json({ error: "Internal Server Error" });
-//   }
-// });
+  try {
+    const query = "SELECT * FROM savings_plans WHERE id = ?;";
+    const values = [savingsPlanId];
+    const [results] = await pool.query(query, values);
+
+    // console.log("results", results);
+
+    res.status(200).json({ savingsPlan: results[0] });
+  } catch (error) {
+    console.error("Failed to get savings plans", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 app.delete("/api/savings-plans/:id", authMiddleware, async (req, res) => {
   // console.log("id", id);
@@ -706,7 +708,7 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
 
     // update savings plan
     query =
-      "UPDATE savings_plans SET name = ?, description = ?, amount = ?, total_periods = ?, amount_per_period = ?, end_date = ? WHERE id = ?;";
+      "UPDATE savings_plans SET name = ?, description = ?, amount = ?, total_periods = ?, amount_per_period = ?, end_date = ?, status = 'active' WHERE id = ?;";
     values = [
       name,
       description,
@@ -780,9 +782,8 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
       }
 
       query =
-        "UPDATE savings_plans SET amount = ?, completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ?, status = 'completed' WHERE id = ?";
+        "UPDATE savings_plans SET amount = ?, total_periods = completed_periods + 1, completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ?, status = 'completed' WHERE id = ?";
       values = [+plan.amount + finalAmount - remainingAmount, finalAmount, savingsPlanId];
-
       await pool.query(query, values);
 
       return res
@@ -794,16 +795,26 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
         const newEndDate = calculateNewEndDate(plan.end_date, plan.period, 1);
 
         query =
-          "INSERT INTO deposits (plan_id, user_id, scheduled_amount, deposited_amount, date, status) VALUES (?, ?, ?, ?, ?);";
+          "INSERT INTO deposits (plan_id, user_id, scheduled_amount, deposited_amount, date, status) VALUES (?, ?, ?, ?, ?, 'pending');";
         values = [
           savingsPlanId,
           plan.user_id,
           +plan.amount - (+plan.deposited_amount + finalAmount),
           +plan.amount - (+plan.deposited_amount + finalAmount),
           newEndDate,
-          "pending",
         ];
+
         await pool.query(query, values);
+
+        // update savings plan total_periods, completed_periods and deposited_amount
+        query =
+          "UPDATE savings_plans SET total_periods = total_periods + 1, completed_periods = completed_periods + 1, deposited_amount = deposited_amount + ? WHERE id = ?";
+        values = [finalAmount, savingsPlanId];
+        await pool.query(query, values);
+
+        return res
+          .status(200)
+          .json({ message: "Deposit confirmed! Savings plan completed." });
       } else {
         // Savings Plan uncompleted, update future pending deposits amount
         const newAmountPerPeriod =
@@ -840,10 +851,13 @@ app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
     const [results] = await pool.query(query, values);
     const deposit = results[0];
 
-    const { scheduled_amount } = deposit;
+    // const { scheduled_amount } = deposit;
+    const { scheduled_amount, deposited_amount } = deposit;
 
+    // query = "UPDATE deposits SET deposited_amount = ?, status = 'pending' WHERE id = ?;";
+    // values = [scheduled_amount, depositId];
     query = "UPDATE deposits SET deposited_amount = ?, status = 'pending' WHERE id = ?;";
-    values = [scheduled_amount, depositId];
+    values = [deposited_amount, depositId];
     await pool.query(query, values);
 
     query =
@@ -864,6 +878,7 @@ app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
     query =
       "UPDATE deposits SET deposited_amount = ? WHERE plan_id = ? AND status = 'pending';";
     values = [newAmount, savingsPlanId];
+
     await pool.query(query, values);
 
     res.status(200).json({ message: "Deposit Reset!" });
