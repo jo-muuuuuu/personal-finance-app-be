@@ -315,12 +315,18 @@ app.put("/api/account-books/:id", authMiddleware, async (req, res) => {
 
 app.get("/api/account-books", authMiddleware, async (req, res) => {
   const { userId } = req.user;
+  const { count } = req.query;
 
   try {
     const query =
       "SELECT * FROM account_books WHERE user_id = ? ORDER BY created_at DESC;";
     const values = [userId];
     const [results] = await pool.query(query, values);
+
+    if (count === "true") {
+      return res.status(200).json({ count: results.length });
+    }
+
     res.status(200).json({ accountBookList: results });
   } catch (error) {
     console.error("Failed to get account books", error);
@@ -375,12 +381,18 @@ app.post("/api/transactions", authMiddleware, async (req, res) => {
 
 app.get("/api/transactions", authMiddleware, async (req, res) => {
   const { userId } = req.user;
+  const { count } = req.query;
 
   try {
     const query =
       "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC;";
     const values = [userId];
     const [results] = await pool.query(query, values);
+
+    if (count === "true") {
+      return res.status(200).json({ count: results.length });
+    }
+
     res.status(200).json({ transactionList: results });
   } catch (error) {
     console.error("Failed to get transactions", error);
@@ -589,12 +601,18 @@ app.post("/api/savings-plans", authMiddleware, async (req, res) => {
 
 app.get("/api/savings-plans", authMiddleware, async (req, res) => {
   const { userId } = req.user;
+  const { count } = req.query;
 
   try {
     const query =
       "SELECT * FROM savings_plans WHERE user_id = ? ORDER BY created_at DESC;";
     const values = [userId];
     const [results] = await pool.query(query, values);
+
+    if (count === "true") {
+      return res.status(200).json({ count: results.length });
+    }
+
     res.status(200).json({ savingsPlanList: results });
   } catch (error) {
     console.error("Failed to get savings plans", error);
@@ -729,8 +747,24 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
 
 app.get("/api/deposits", authMiddleware, async (req, res) => {
   // console.log(req.headers);
-  const { savingsplanid: savingsPlanId } = req.headers;
+  const { count } = req.query;
+  const { userId } = req.user;
 
+  if (count === "true") {
+    try {
+      const query = "SELECT COUNT(*) AS depositCount FROM deposits WHERE user_id = ?;";
+      const values = [userId];
+
+      const [results] = await pool.query(query, values);
+      const depositCount = results[0].depositCount;
+      return res.status(200).json({ count: depositCount });
+    } catch (error) {
+      console.error("Failed to get deposit count", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+  }
+
+  const { savingsplanid: savingsPlanId } = req.headers;
   try {
     const query = "SELECT * FROM deposits WHERE plan_id = ?;";
     const values = [savingsPlanId];
