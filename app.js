@@ -745,6 +745,33 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
   }
 });
 
+app.patch("/api/savings-plans/:id", authMiddleware, async (req, res) => {
+  const savingsPlanId = req.params.id;
+  const { status } = req.body;
+
+  const allowedAction = ["resume", "pause", "terminate"];
+  if (!status || !allowedAction.includes(status)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+
+  const statusMap = {
+    resume: "active",
+    pause: "paused",
+    terminate: "cancelled",
+  };
+
+  try {
+    const query = "UPDATE savings_plans SET status = ? WHERE id = ?";
+    const values = [statusMap[status], savingsPlanId];
+    await pool.query(query, values);
+
+    res.status(200).json({ message: "Status updated successfully" });
+  } catch (error) {
+    console.error("Failed to update savings plan status", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 app.get("/api/deposits", authMiddleware, async (req, res) => {
   // console.log(req.headers);
   const { count } = req.query;
