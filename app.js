@@ -745,6 +745,93 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
   }
 });
 
+app.patch("/api/savings-plans/:id", authMiddleware, async (req, res) => {
+  const savingsPlanId = req.params.id;
+  const { status } = req.body;
+  const { userId } = req.user;
+
+  const allowedAction = ["resume", "pause", "terminate"];
+  if (!status || !allowedAction.includes(status)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+
+  const statusMap = {
+    resume: "active",
+    pause: "paused",
+    terminate: "cancelled",
+  };
+
+  if (status === "resume") {
+    try {
+      // Delete pending deposits
+      let query = `DELETE FROM deposits WHERE plan_id = ? AND status = 'pending';`;
+      let values = [savingsPlanId];
+      await pool.query(query, values);
+
+      // Generate new deposits
+      query = "SELECT * FROM savings_plans WHERE id = ?;";
+      values = [savingsPlanId];
+      const [results] = await pool.query(query, values);
+      const plan = results[0];
+
+      const remaining_amount = +plan.amount - +plan.deposited_amount;
+      const remaining_periods = +plan.total_periods - +plan.completed_periods;
+      const period_type = plan.period;
+      const new_amount_per_period = remaining_amount / remaining_periods;
+
+      const nextDepositDate = dayjs();
+      const finalDepositDate = calculateNewEndDate(
+        nextDepositDate,
+        period_type,
+        remaining_periods
+      );
+
+      const depositDates = generateDepositDates(
+        nextDepositDate,
+        finalDepositDate,
+        period_type,
+        remaining_periods
+      );
+      let depositList = [];
+      depositDates.forEach((date) => {
+        depositList.push([
+          savingsPlanId,
+          userId,
+          new_amount_per_period,
+          new_amount_per_period,
+          date,
+          "pending",
+        ]);
+      });
+
+      query =
+        "INSERT INTO deposits (plan_id, user_id, scheduled_amount, deposited_amount, date, status) VALUES ?";
+      values = [depositList];
+      await pool.query(query, values);
+
+      query = "UPDATE savings_plans SET status = 'active' WHERE id = ?";
+      values = [savingsPlanId];
+      await pool.query(query, values);
+
+      return res.status(200).json({ message: "Savings Plan resumed successfully" });
+    } catch (error) {
+      console.error("Failed to resume savings plan", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+  }
+
+  try {
+    const query = "UPDATE savings_plans SET status = ? WHERE id = ?";
+    const values = [statusMap[status], savingsPlanId];
+    await pool.query(query, values);
+
+    res.status(200).json({ message: "Status updated successfully" });
+  } catch (error) {
+    console.error("Failed to update savings plan status", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 app.get("/api/deposits", authMiddleware, async (req, res) => {
   // console.log(req.headers);
   const { count } = req.query;
