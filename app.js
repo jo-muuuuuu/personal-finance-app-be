@@ -7,6 +7,8 @@ const nodemailer = require("nodemailer");
 const multer = require("multer");
 const path = require("path");
 const dayjs = require("dayjs");
+const axios = require("axios");
+const crypto = require("crypto");
 
 const app = express();
 app.use(express.json());
@@ -116,6 +118,229 @@ app.post("/api/login", async (req, res) => {
   } catch (error) {
     console.error("Failed to login:", error);
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+async function generatePassword(length = 32) {
+  const rawPassword = crypto.randomBytes(length).toString("hex");
+  const hashedPassword = await bcrypt.hash(rawPassword, 10);
+  return hashedPassword;
+}
+
+app.post("/api/google-login", async (req, res) => {
+  const { access_token } = req.body;
+
+  if (!access_token) {
+    return res.status(400).json({ error: "Missing Google access token" });
+  }
+
+  try {
+    const userInfoRes = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+      },
+    });
+
+    // console.log("Google user info:", userInfoRes.data);
+
+    const { given_name, email } = userInfoRes.data;
+    // const { sub: googleId, email, name, picture } = userInfoRes.data;
+
+    // Check if user exists
+    let query = "SELECT id, nickname, avatar_url FROM users WHERE email = ?;";
+    let values = [email];
+    const [userQueryRes] = await pool.query(query, values);
+
+    // console.log("Database user query results:", results);
+
+    let userId;
+    let userNickname;
+    let userEmail = email;
+    let userAvatarURL;
+
+    if (userQueryRes.length === 0) {
+      // Create new user
+      const tempPassword = await generatePassword();
+      userNickname = given_name || email.split("@")[0];
+
+      query = `INSERT INTO users (email, nickname, password) VALUES (?, ?, ?)`;
+      values = [userEmail, userNickname, tempPassword];
+      const [insertResult] = await pool.query(query, values);
+
+      console.log("Created new Google user:", insertResult);
+
+      userId = insertResult.insertId;
+    } else {
+      // Existing user
+      userId = userQueryRes[0].id;
+      userNickname = userQueryRes[0].nickname;
+      userAvatarURL = userQueryRes[0].avatar_url;
+    }
+
+    const token = jwt.sign({ userId, email }, jwtSecretKey, {
+      expiresIn: "1h",
+    });
+
+    res.status(200).json({
+      userId,
+      nickname: userNickname,
+      email: userEmail,
+      avatarURL: userAvatarURL,
+      token,
+    });
+  } catch (error) {
+    console.error("Google access token verification failed:", error);
+
+    if (error.response && error.response.status === 401) {
+      return res.status(401).json({ error: "Invalid or expired Google access token" });
+    }
+
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/github/exchange-token", async (req, res) => {
+  const { code } = req.body;
+
+  try {
+    // Request access_token from GitHub
+    const response = await axios.post(
+      "https://github.com/login/oauth/access_token",
+      {
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: process.env.GITHUB_REDIRECT_URI,
+      },
+      {
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error("Token exchange error:", error);
+    res.status(500).json({
+      error: "Failed to exchange token",
+    });
+  }
+});
+
+app.post("/api/github-login", async (req, res) => {
+  const { access_token } = req.body;
+
+  if (!access_token) {
+    return res.status(400).json({ error: "Missing GitHub access token" });
+  }
+
+  try {
+    // Request user info from GitHub with the access token
+    const userInfoRes = await axios.get("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+        Accept: "application/json",
+      },
+    });
+
+    // console.log("GitHub user info:", userInfoRes.data);
+
+    const { login, name: nickname } = userInfoRes.data;
+    let email = userInfoRes.data.email;
+
+    // Get user emails if email is not provided
+    if (!email) {
+      try {
+        const emailRes = await axios.get("https://api.github.com/user/emails", {
+          headers: {
+            Authorization: `Bearer ${access_token}`,
+            Accept: "application/json",
+          },
+        });
+
+        // console.log("GitHub user emails:", emailRes.data);
+
+        const primaryEmail = emailRes.data.find((email) => email.primary);
+        if (primaryEmail) {
+          email = primaryEmail.email;
+        } else if (emailRes.data.length > 0) {
+          email = emailRes.data[0].email;
+        }
+      } catch (emailError) {
+        console.warn("Failed to fetch GitHub emails:", emailError.message);
+      }
+    }
+
+    // Check if user exists
+    let query = "SELECT id, email, nickname, avatar_url FROM users WHERE email = ?";
+    let values = [email];
+    const [userQueryRes] = await pool.query(query, values);
+
+    let userId;
+    let userNickname;
+    let userEmail = email;
+    let userAvatarURL;
+
+    if (userQueryRes.length === 0) {
+      // Create new user
+      userNickname = nickname || login;
+      const tempPassword = await generatePassword();
+
+      query = `INSERT INTO users (email, nickname, password) VALUES (?, ?, ?)`;
+      values = [userEmail, userNickname, tempPassword];
+      const [insertResult] = await pool.query(query, values);
+
+      // console.log("Created new GitHub user:", insertResult);
+      userId = insertResult.insertId;
+    } else {
+      // Existing user
+      console.log("Existing GitHub user:", userQueryRes[0]);
+      userId = userQueryRes[0].id;
+      userNickname = userQueryRes[0].nickname;
+      userAvatarURL = userQueryRes[0].avatar_url;
+    }
+
+    const token = jwt.sign(
+      {
+        userId,
+        email: userEmail,
+        type: "github",
+      },
+      jwtSecretKey,
+      {
+        expiresIn: "1h",
+      }
+    );
+    res.status(200).json({
+      userId,
+      nickname: userNickname,
+      email: userEmail,
+      avatarURL: userAvatarURL,
+      token,
+    });
+  } catch (error) {
+    console.error("GitHub login failed:", error);
+
+    if (error.response) {
+      if (error.response.status === 401) {
+        return res.status(401).json({
+          success: false,
+          error: "Invalid or expired GitHub access token",
+        });
+      }
+
+      return res.status(error.response.status).json({
+        success: false,
+        error: `GitHub API error: ${error.response.data?.message || "Unknown error"}`,
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
   }
 });
 
