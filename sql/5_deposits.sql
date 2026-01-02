@@ -7,10 +7,12 @@ CREATE TABLE deposits (
     scheduled_amount DECIMAL(10,2) NOT NULL,
     deposited_amount DECIMAL(10,2) NOT NULL,
     date DATE NOT NULL,
-    status ENUM('pending', 'completed') DEFAULT 'completed',
+    status ENUM('pending', 'completed') DEFAULT 'pending',
 
     FOREIGN KEY (plan_id) REFERENCES savings_plans(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+ALTER TABLE deposits ADD COLUMN plan_name VARCHAR(100) AFTER plan_id;
 
 SELECT * FROM deposits;
