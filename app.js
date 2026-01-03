@@ -804,6 +804,7 @@ app.post("/api/savings-plans", authMiddleware, async (req, res) => {
     depositDates.forEach((date) => {
       depositList.push([
         results.insertId,
+        name,
         userId,
         amountPerPeriod,
         amountPerPeriod,
@@ -813,7 +814,7 @@ app.post("/api/savings-plans", authMiddleware, async (req, res) => {
     });
 
     query =
-      "INSERT INTO deposits (plan_id, user_id, scheduled_amount, deposited_amount, date, status) VALUES ?";
+      "INSERT INTO deposits (plan_id, plan_name, user_id, scheduled_amount, deposited_amount, date, status) VALUES ?";
     values = [depositList];
 
     await pool.query(query, values);
@@ -935,6 +936,7 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
       depositDates.forEach((date) => {
         depositList.push([
           savingsPlanId,
+          name,
           userId,
           new_amount_per_period,
           new_amount_per_period,
@@ -944,7 +946,7 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
       });
 
       query =
-        "INSERT INTO deposits (plan_id, user_id, scheduled_amount, deposited_amount, date, status) VALUES ?";
+        "INSERT INTO deposits (plan_id, plan_name, user_id, scheduled_amount, deposited_amount, date, status) VALUES ?";
       values = [depositList];
       await pool.query(query, values);
     }
@@ -1017,10 +1019,12 @@ app.patch("/api/savings-plans/:id", authMiddleware, async (req, res) => {
         period_type,
         remaining_periods
       );
+
       let depositList = [];
       depositDates.forEach((date) => {
         depositList.push([
           savingsPlanId,
+          plan.name,
           userId,
           new_amount_per_period,
           new_amount_per_period,
@@ -1030,7 +1034,7 @@ app.patch("/api/savings-plans/:id", authMiddleware, async (req, res) => {
       });
 
       query =
-        "INSERT INTO deposits (plan_id, user_id, scheduled_amount, deposited_amount, date, status) VALUES ?";
+        "INSERT INTO deposits (plan_id, plan_name, user_id, scheduled_amount, deposited_amount, date, status) VALUES ?";
       values = [depositList];
       await pool.query(query, values);
 
@@ -1077,6 +1081,20 @@ app.get("/api/deposits", authMiddleware, async (req, res) => {
   }
 
   const { savingsplanid: savingsPlanId } = req.headers;
+
+  if (!savingsPlanId) {
+    try {
+      const query = "SELECT * FROM deposits WHERE user_id = ?;";
+      const values = [userId];
+      const [results] = await pool.query(query, values);
+
+      return res.status(200).json({ depositList: results });
+    } catch (error) {
+      console.error("Failed to get deposits", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  }
+
   try {
     const query = "SELECT * FROM deposits WHERE plan_id = ?;";
     const values = [savingsPlanId];
@@ -1141,9 +1159,10 @@ app.put("/api/deposits/:id", authMiddleware, async (req, res) => {
         const newEndDate = calculateNewEndDate(plan.end_date, plan.period, 1);
 
         query =
-          "INSERT INTO deposits (plan_id, user_id, scheduled_amount, deposited_amount, date, status) VALUES (?, ?, ?, ?, ?, 'pending');";
+          "INSERT INTO deposits (plan_id, plan_name, user_id, scheduled_amount, deposited_amount, date, status) VALUES (?, ?, ?, ?, ?, ?, 'pending');";
         values = [
           savingsPlanId,
+          plan.name,
           plan.user_id,
           +plan.amount - (+plan.deposited_amount + finalAmount),
           +plan.amount - (+plan.deposited_amount + finalAmount),
@@ -1200,8 +1219,6 @@ app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
     // const { scheduled_amount } = deposit;
     const { scheduled_amount, deposited_amount } = deposit;
 
-    // query = "UPDATE deposits SET deposited_amount = ?, status = 'pending' WHERE id = ?;";
-    // values = [scheduled_amount, depositId];
     query = "UPDATE deposits SET deposited_amount = ?, status = 'pending' WHERE id = ?;";
     values = [deposited_amount, depositId];
     await pool.query(query, values);
