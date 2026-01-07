@@ -1,46 +1,114 @@
-# Personal Finance App - Back End
-## Introduction
-This project is a simple yet functional personal finance application that allows users to track their income and expenses using account books and transactions.
+# Penny Wave
 
-### Account Book Page
-<img width="600" alt="1bc84159fa2f53b973fe35119ff3bce" src="https://github.com/user-attachments/assets/2732fabb-257f-4f7a-80e3-77016648e80e" />
+A modern personal finance web application designed to help users manage daily income and expenses,
+organize multiple account books, and build sustainable savings habits through flexible savings plans.
 
-### Transaction Page
-<img width="600" alt="522a5e8ecc66eaae5ddd5dec637bd44" src="https://github.com/user-attachments/assets/7aeb1b86-bbc5-4582-90ae-6be5f016496c" />
+This project focuses on real-life usability, clean UI, and clear financial insights.
 
-### Dashboard
-<img width="600" alt="4a9220e92a99e30cfc6622298c0e6d3" src="https://github.com/user-attachments/assets/cd87a0bb-f155-4079-81e7-5b700d6cf0fb" />
+---
+
+## 🖥️ Demo
+
+This project is now live: [Penny Wave](https://pennywave.net)
+
+Watch the demo video: [Demo Video](https://www.youtube.com/watch?v=-0Kt80Snxmk)
+
+## ✨ Features
+
+### 🧮 Dashboard 
+**First-time Experience (Empty State)**
+
+- User-friendly onboarding guide when no financial data is available
+- Clear prompts to create an account book, add transactions, or start a savings plan
+
+<img width="800" height="600" alt="empty-state" src="https://github.com/user-attachments/assets/795a2282-0f63-4a78-b358-6c0103280351" />
+<br /><br />
+
+**Financial Overview (With Data)**
+
+- Monthly income and expense summary for the current month
+- Savings plans progress overview 
+- Monthly income vs expenses line chart for trend analysis
+- Expense distribution pie chart by category
+- Upcoming deposits for active savings plans
+- Recent transactions list for quick review
+
+ <img width="800" height="600" alt="dashboard" src="https://github.com/user-attachments/assets/db53888a-ef4a-4126-abdd-d26c5cd04f7c" />
+
+  
+### 📒 Account Books 
+- Create and manage multiple account books (e.g. Daily Expenses, Travel, Family)
+- View monthly income, expenses, and balance summaries
+
+<img width="800" height="600" alt="account-books" src="https://github.com/user-attachments/assets/0bcf6844-17f0-4a27-870d-bae14787ecf9" />
+
+### 💸 Transactions
+- Record daily income and expenses with detailed transaction history
+- Categorize transactions for better financial insights
+- Recent transactions and quick status overview on the dashboard
+
+<img width="800" height="600" alt="transactions" src="https://github.com/user-attachments/assets/1bf934f2-ee7f-4395-b4f4-876fc5beef00" />
 
 
-## Deployment
-This project is now live: [Personal Finance App](http://16.26.46.247/)
+### 💰 Savings Plans
+- Create custom savings plans with target amounts and deadlines
+- Track deposit progress in real time
+- Support flexible and irregular deposits
+- Visual progress indicators to encourage consistent saving
+- Easily pause, complete, or adjust savings plans as financial situations change
 
-### Database
-The backend uses a `MySQL` database hosted on `Amazon RDS`.
+<img width="800" height="600" alt="savings-plans" src="https://github.com/user-attachments/assets/f0acfbb1-fc31-4c39-98b5-d0e438e8fa87" />
 
-### Frontend & Backend
-Both the frontend and backend are deployed on a single `Amazon EC2` instance.
-- `Nginx` is used to serve the frontend and proxy API requests to the backend.
-- `PM2` is used to run and monitor the backend `Express` server.
+---
 
-## How to use
-You can register a new account and log in to start using the app.
+## 🧱 Tech Stack
 
-- For simplicity and demonstration purposes, there is no email or password validation during registration.
-- If you'd like to test the `forgot password` and `reset password` functionalities, please use a ***real email address***.
-
-## Tech Stack
-- Frontend: React, React Redux, Ant Design, Axios, ECharts
-- Backend: Node.js (Express.js), MySQL, Nodemailer (Gmail)
-- DevOps & Hosting: AWS (EC2, RDS), Nginx, PM2
+- Frontend: React, Redux, Ant Design, ECharts, Axios
+- Backend: Node.js, Express, MySQL, Nodemailer, OAuth, JWT, bcrypt
+- Database: MySQL
 
 
-## Commands
-- Connect to the RDS MySQL DB: `mysql -h <Endpoint of DB> -P 3306 -u <username> -p` and then enter password
-- `MySQL scripts` are also available in the Backend Repo.
-- Connect to the EC2 Instance: `ssh -i <key-pair.pem> <username>@<Public DNS of Instance>`
-- Install necessary modules: `sudo yum install -y nodejs git nginx`, `sudo npm install -g pm2`
-- Transfer files: `scp -i <key-pair.pem> -r <folder> <username>@<Public DNS of Instance>`, or `git clone <URL of your repo>`
-- Strat Backend: `pm2 start <backend file> --name <name>`, `pm2 save`, `pm2 restart <name>`, `pm2 logs <name>`
-- Modify Nginx configuration: `sudo nano /etc/nginx/nginx.conf`
-- Use Nginx: `sudo systemctl start nginx`, `sudo systemctl enable nginx`, `sudo systemctl restart nginx`
+## 🏗️ Deployment
+
+This project is deployed on AWS.
+
+The complete deployment process and configuration are documented in a dedicated repository:
+👉 [Penny Wave Deployment](https://github.com/jo-muuuuuu/penny-wave-deployment)
+
+---
+
+## 🚀 Getting Started
+### Installation
+
+```bash
+git clone https://github.com/jo-muuuuuu/penny-wave-be.git
+cd penny-wave-db
+npm install
+```
+
+### Create a .env file with the following credentials
+```
+PUBLIC_IP
+MYSQL_CONFIGURATION
+JWT_SECRET
+
+# For Nodemailer
+EMAIL_USERNAME=noreply.pennywave@gmail.com
+EMAIL_PASSWORD=vnashdpxtbgvwkjt
+
+# Log-in via Google
+GOOGLE_CLIENT_ID
+
+# Log-in via GitHub
+GITHUB_CLIENT_ID
+GITHUB_CLIENT_SECRET
+GITHUB_REDIRECT_URI
+```
+
+### Running the server
+```
+node app.js
+
+# or use nodemon
+# nodemon app.js
+```
