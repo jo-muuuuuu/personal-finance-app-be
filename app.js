@@ -217,7 +217,7 @@ app.post("/api/github/exchange-token", async (req, res) => {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
-      }
+      },
     );
 
     res.json(response.data);
@@ -311,7 +311,7 @@ app.post("/api/github-login", async (req, res) => {
       jwtSecretKey,
       {
         expiresIn: "1h",
-      }
+      },
     );
     res.status(200).json({
       userId,
@@ -365,11 +365,26 @@ app.post("/api/forgot-password", async (req, res) => {
     values = [token, expiration, email];
     await pool.query(query, values);
 
+    const resetLink = `${process.env.PUBLIC_IP}/reset-password/${token}`;
+
     const mailOptions = {
       from: process.env.EMAIL_USERNAME,
       to: email,
-      subject: "Penny Wave - Password Reset",
-      text: `Click the link to reset your password: ${process.env.PUBLIC_IP}/reset-password/${token}`,
+      subject: "Penny Wave - Reset Your Password",
+      text: `Dear ${results[0].nickname || "User"},
+
+We received a request to reset the password for your Penny Wave account.
+
+Please click the link below to set a new password:
+${resetLink}
+
+If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.
+
+For security reasons, this link will expire in a limited time.
+
+Best regards,
+Penny Wave Team
+`,
     };
 
     await transporter.sendMail(mailOptions);
@@ -501,7 +516,7 @@ app.post(
       console.error("Upload avatar error:", err);
       res.status(500).json({ error: "Failed to upload avatar" });
     }
-  }
+  },
 );
 
 app.post("/api/account-books", authMiddleware, async (req, res) => {
@@ -797,7 +812,7 @@ app.post("/api/savings-plans", authMiddleware, async (req, res) => {
       newStartDate,
       newEndDate,
       period,
-      totalPeriods
+      totalPeriods,
     );
 
     let depositList = [];
@@ -922,14 +937,14 @@ app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
       const nextDepositDate = calculateNewEndDate(
         plan.start_date,
         plan.period,
-        plan.completed_periods
+        plan.completed_periods,
       );
 
       const depositDates = generateDepositDates(
         nextDepositDate,
         newEndDate,
         plan.period,
-        remaining_periods
+        remaining_periods,
       );
 
       let depositList = [];
@@ -1010,14 +1025,14 @@ app.patch("/api/savings-plans/:id", authMiddleware, async (req, res) => {
       const finalDepositDate = calculateNewEndDate(
         nextDepositDate,
         period_type,
-        remaining_periods
+        remaining_periods,
       );
 
       const depositDates = generateDepositDates(
         nextDepositDate,
         finalDepositDate,
         period_type,
-        remaining_periods
+        remaining_periods,
       );
 
       let depositList = [];
